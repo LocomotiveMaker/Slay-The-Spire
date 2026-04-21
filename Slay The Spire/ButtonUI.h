@@ -9,9 +9,12 @@
 class ButtonUI : public UIElement {
 private:
     std::string text;
+    std::wstring cachedAlignedText;
     WORD idleColor;
     WORD hoverColor;
     bool isClickedThisFrame; // 현재 프레임에서 클릭이 확정되었는지 여부
+
+    void RebuildTextCache();
 
 public:
     ButtonUI(int x, int y, int width, int height, const std::string& text, WORD idleColor, WORD hoverColor);

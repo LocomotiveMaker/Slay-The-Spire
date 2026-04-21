@@ -6,6 +6,29 @@
 
 ModalPopupUI::ModalPopupUI(int w, int h, const std::string& title)
     : UIElement(0, 0, w, h), title(title), isVisible(false) {
+    RebuildTitleCache();
+}
+
+void ModalPopupUI::RebuildTitleCache() {
+    cachedTitleLine = TextLayout::AlignToWidth(
+        TextLayout::Utf8ToWide(title),
+        width - 2,
+        TextLayout::HorizontalAlign::Center);
+}
+
+void ModalPopupUI::RebuildContentsCache() {
+    renderedContentLines.clear();
+
+    const int contentWidth = width - 8;
+    for (const std::string& contentLine : contents) {
+        const TextLayout::WrappedText wrapped = TextLayout::WrapUtf8(contentLine, contentWidth);
+        for (const std::wstring& wrappedLine : wrapped.lines) {
+            renderedContentLines.push_back(TextLayout::AlignToWidth(
+                wrappedLine,
+                contentWidth,
+                TextLayout::HorizontalAlign::Left));
+        }
+    }
 }
 
 void ModalPopupUI::Open() { isVisible = true; }
@@ -14,6 +37,7 @@ bool ModalPopupUI::IsVisible() const { return isVisible; }
 
 void ModalPopupUI::SetContents(const std::vector<std::string>& textLines) {
     contents = textLines;
+    RebuildContentsCache();
 }
 
 void ModalPopupUI::AddButton(const ButtonUI& button) {
@@ -66,33 +90,17 @@ void ModalPopupUI::Render(ScreenManager& screen) {
         screen.DrawChar(x + width - 1, y + i, '|', COLOR_WHITE);
     }
 
-    const std::wstring centeredTitle = TextLayout::AlignToWidth(
-        TextLayout::Utf8ToWide(title),
-        width - 2,
-        TextLayout::HorizontalAlign::Center);
-
-    screen.DrawString(x + 1, y + 2, centeredTitle, COLOR_YELLOW);
+    screen.DrawString(x + 1, y + 2, cachedTitleLine, COLOR_YELLOW);
     screen.DrawString(x + 2, y + 3, std::string(width - 4, '-'), COLOR_WHITE);
 
     int drawY = contentTop;
-    for (const std::string& contentLine : contents) {
-        const TextLayout::WrappedText wrapped = TextLayout::WrapUtf8(contentLine, contentWidth);
-        for (const std::wstring& wrappedLine : wrapped.lines) {
-            if (drawY > contentBottom) {
-                break;
-            }
-
-            screen.DrawString(
-                contentLeft,
-                drawY,
-                TextLayout::AlignToWidth(wrappedLine, contentWidth, TextLayout::HorizontalAlign::Left),
-                COLOR_WHITE);
-            ++drawY;
-        }
-
+    for (const std::wstring& renderedLine : renderedContentLines) {
         if (drawY > contentBottom) {
             break;
         }
+
+        screen.DrawString(contentLeft, drawY, renderedLine, COLOR_WHITE);
+        ++drawY;
     }
 
     for (auto& btn : buttons) {

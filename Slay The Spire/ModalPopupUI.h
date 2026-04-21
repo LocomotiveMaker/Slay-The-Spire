@@ -12,8 +12,13 @@ class ModalPopupUI : public UIElement {
 private:
     std::string title;
     std::vector<std::string> contents;
+    std::wstring cachedTitleLine;
+    std::vector<std::wstring> renderedContentLines;
     std::vector<ButtonUI> buttons;
     bool isVisible;
+
+    void RebuildTitleCache();
+    void RebuildContentsCache();
 
 public:
     ModalPopupUI(int w, int h, const std::string& title);

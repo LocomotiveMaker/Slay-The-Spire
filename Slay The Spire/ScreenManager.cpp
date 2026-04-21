@@ -7,10 +7,37 @@
 
 namespace {
 
+RECT GetPreferredMonitorRect(HWND hwnd) {
+    HMONITOR monitor = nullptr;
+
+    POINT cursorPos = {};
+    if (GetCursorPos(&cursorPos)) {
+        monitor = MonitorFromPoint(cursorPos, MONITOR_DEFAULTTONEAREST);
+    }
+
+    if (monitor == nullptr && hwnd != nullptr) {
+        monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    }
+
+    MONITORINFO monitorInfo = {};
+    monitorInfo.cbSize = sizeof(monitorInfo);
+
+    if (monitor != nullptr && GetMonitorInfoW(monitor, &monitorInfo)) {
+        return monitorInfo.rcMonitor;
+    }
+
+    RECT fallbackRect = {};
+    fallbackRect.right = GetSystemMetrics(SM_CXSCREEN);
+    fallbackRect.bottom = GetSystemMetrics(SM_CYSCREEN);
+    return fallbackRect;
+}
+
 void ApplyBorderlessFullscreen(HWND hwnd) {
     if (hwnd == nullptr) {
         return;
     }
+
+    const RECT monitorRect = GetPreferredMonitorRect(hwnd);
 
     LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
     style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
@@ -21,23 +48,17 @@ void ApplyBorderlessFullscreen(HWND hwnd) {
     exStyle &= ~(WS_EX_CLIENTEDGE | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE | WS_EX_DLGMODALFRAME);
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle);
 
-    MONITORINFO monitorInfo = {};
-    monitorInfo.cbSize = sizeof(monitorInfo);
+    SetWindowPos(
+        hwnd,
+        HWND_TOPMOST,
+        monitorRect.left,
+        monitorRect.top,
+        0,
+        0,
+        SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOSIZE);
 
-    if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &monitorInfo)) {
-        const RECT& monitorRect = monitorInfo.rcMonitor;
-        SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            monitorRect.left,
-            monitorRect.top,
-            monitorRect.right - monitorRect.left,
-            monitorRect.bottom - monitorRect.top,
-            SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-    }
-    else {
-        ShowWindow(hwnd, SW_MAXIMIZE);
-    }
+    ShowWindow(hwnd, SW_MAXIMIZE);
+    UpdateWindow(hwnd);
 }
 
 } // namespace
@@ -164,6 +185,46 @@ void ScreenManager::DrawGlyph(int x, int y, wchar_t ch, WORD color, int cellWidt
     screenBuffer[index + 1].Attributes = color | COMMON_LVB_TRAILING_BYTE;
 }
 
+bool ScreenManager::IsPureAscii(const std::string& str) const {
+    for (unsigned char ch : str) {
+        if (ch >= 0x80) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void ScreenManager::DrawAsciiString(int x, int y, const std::string& str, WORD color) {
+    if (y < 0 || y >= height) {
+        return;
+    }
+
+    int cursorX = x;
+    for (unsigned char ch : str) {
+        if (ch == '\r') {
+            continue;
+        }
+
+        if (ch == '\n') {
+            break;
+        }
+
+        if (cursorX < 0) {
+            ++cursorX;
+            continue;
+        }
+
+        if (cursorX >= width) {
+            break;
+        }
+
+        const int index = y * width + cursorX;
+        screenBuffer[index].Char.UnicodeChar = static_cast<wchar_t>(ch);
+        screenBuffer[index].Attributes = color;
+        ++cursorX;
+    }
+}
+
 void ScreenManager::Clear() {
     for (int i = 0; i < width * height; ++i) {
         screenBuffer[i].Char.UnicodeChar = L' ';
@@ -180,6 +241,11 @@ void ScreenManager::DrawChar(int x, int y, wchar_t ch, WORD color) {
 }
 
 void ScreenManager::DrawString(int x, int y, const std::string& str, WORD color) {
+    if (IsPureAscii(str)) {
+        DrawAsciiString(x, y, str, color);
+        return;
+    }
+
     DrawString(x, y, TextLayout::Utf8ToWide(str), color);
 }
 

@@ -1,11 +1,18 @@
-﻿#pragma once
-#include "UIElement.h"
+#pragma once
 #include "GameData.h"
+#include "UIElement.h"
+#include <string>
+#include <vector>
 
 class CardUI : public UIElement {
 private:
-    CardData* data; // 바인딩된 카드 데이터
+    CardData* data;
     int baseY;
+    std::wstring cachedNameLine;
+    std::wstring cachedTypeLine;
+    std::vector<std::wstring> cachedDescriptionLines;
+
+    void RebuildLayoutCache();
 
 public:
     CardUI(int x, int y, CardData* cardData);

@@ -10,6 +10,7 @@
 class TooltipUI : public UIElement {
 private:
     std::vector<std::string> lines;
+    std::vector<std::wstring> renderedLines;
     bool isVisible;
 
 public:

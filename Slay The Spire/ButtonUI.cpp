@@ -6,6 +6,14 @@
 
 ButtonUI::ButtonUI(int x, int y, int width, int height, const std::string& text, WORD idleColor, WORD hoverColor)
     : UIElement(x, y, width, height), text(text), idleColor(idleColor), hoverColor(hoverColor), isClickedThisFrame(false) {
+    RebuildTextCache();
+}
+
+void ButtonUI::RebuildTextCache() {
+    cachedAlignedText = TextLayout::AlignToWidth(
+        TextLayout::Utf8ToWide(text),
+        width - 2,
+        TextLayout::HorizontalAlign::Center);
 }
 
 bool ButtonUI::Update(InputManager& input) {
@@ -33,12 +41,6 @@ void ButtonUI::Render(ScreenManager& screen) {
     screen.DrawString(x, y + height - 1, "+" + std::string(width - 2, '-') + "+", color);
 
     // 텍스트는 내부 폭에 맞춘 뒤 배치해야 한글이 들어와도 테두리가 밀리지 않는다.
-    const int innerWidth = width - 2;
     const int textY = TextLayout::ComputeAlignedY(y + 1, height - 2, 1);
-    const std::wstring alignedText = TextLayout::AlignToWidth(
-        TextLayout::Utf8ToWide(text),
-        innerWidth,
-        TextLayout::HorizontalAlign::Center);
-
-    screen.DrawString(x + 1, textY, alignedText, color);
+    screen.DrawString(x + 1, textY, cachedAlignedText, color);
 }

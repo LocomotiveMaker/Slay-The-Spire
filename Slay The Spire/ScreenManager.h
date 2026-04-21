@@ -32,6 +32,8 @@ private:
     void ResetCell(int x, int y);
     void ClearWideGlyphAt(int x, int y);
     void DrawGlyph(int x, int y, wchar_t ch, WORD color, int cellWidth);
+    bool IsPureAscii(const std::string& str) const;
+    void DrawAsciiString(int x, int y, const std::string& str, WORD color);
 
 public:
     ScreenManager();

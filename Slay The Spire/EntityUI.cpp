@@ -1,11 +1,11 @@
-// -----------------------------------------------------------------------------
+﻿// -----------------------------------------------------------------------------
 // @file       EntityUI.cpp
 // -----------------------------------------------------------------------------
 #include "EntityUI.h"
 #include "TextLayout.h"
 
 EntityUI::EntityUI(int x, int y, EntityData* entityData, bool isPlayer)
-    : UIElement(x, y, 20, 10), data(entityData), isPlayer(isPlayer), isTargeted(false), hitAnimationTimer(0)
+    : UIElement(x, y, 24, 10), data(entityData), isPlayer(isPlayer), isTargeted(false), hitAnimationTimer(0)
 {
     WORD hpColor = isPlayer ? COLOR_GREEN : COLOR_RED;
     healthBar = new ProgressBarUI(x, y + height - 1, width, &(data->currentHp), &(data->maxHp), u8"체력", COLOR_WHITE, hpColor);
@@ -15,17 +15,17 @@ EntityUI::EntityUI(int x, int y, EntityData* entityData, bool isPlayer)
             "       _      ",
             "     _( )_    ",
             "    |     |   ",
-            "    |/-\\\\|    ",
+            "     |/-\\|    ",
             "      | |     "
         };
     }
     else {
         asciiArt = {
-            "    /\\\\_/\\\\    ",
+            "    /\\_/\\    ",
             "   ( o.o )   ",
             "    > ^ <    ",
-            "   /  _  \\\\   ",
-            "  / /| |\\\\ \\\\  "
+            "   /  _  \\   ",
+            "  / /| |\\ \\  "
         };
     }
 }
@@ -78,11 +78,10 @@ void EntityUI::Render(ScreenManager& screen) {
 
     healthBar->Render(screen);
 
-    if (isTargeted) {
-        const std::wstring targetLabel = TextLayout::AlignToWidth(
-            TextLayout::Utf8ToWide(u8"[ 조준 중 ]"),
-            width,
-            TextLayout::HorizontalAlign::Center);
-        screen.DrawString(renderX, y, targetLabel, COLOR_YELLOW);
-    }
+    const std::string headerText = isTargeted ? std::string(u8"[ 조준 중 ]") : data->name;
+    const std::wstring headerLine = TextLayout::AlignToWidth(
+        TextLayout::Utf8ToWide(headerText),
+        width,
+        TextLayout::HorizontalAlign::Center);
+    screen.DrawString(renderX, y, headerLine, isTargeted ? COLOR_YELLOW : COLOR_WHITE);
 }

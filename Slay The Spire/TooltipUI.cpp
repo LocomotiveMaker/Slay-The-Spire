@@ -8,11 +8,24 @@
 TooltipUI::TooltipUI() : UIElement(0, 0, 0, 0), isVisible(false) {}
 
 void TooltipUI::SetText(const std::vector<std::string>& textLines) {
+    if (lines == textLines) {
+        return;
+    }
+
     lines = textLines;
+    renderedLines.clear();
 
     const int contentWidth = TextLayout::ComputeBoxWidth(lines);
     width = contentWidth + 4; // 좌우 테두리 + 내부 여백 1칸씩
     height = TextLayout::ComputeBoxHeight(static_cast<int>(lines.size())) + 2;
+
+    renderedLines.reserve(lines.size());
+    for (const std::string& line : lines) {
+        renderedLines.push_back(TextLayout::AlignToWidth(
+            TextLayout::Utf8ToWide(line),
+            width - 4,
+            TextLayout::HorizontalAlign::Left));
+    }
 }
 
 void TooltipUI::SetVisible(bool state) {
@@ -67,12 +80,7 @@ void TooltipUI::Render(ScreenManager& screen) {
     }
 
     // 텍스트 출력
-    for (size_t i = 0; i < lines.size(); ++i) {
-        const std::wstring alignedLine = TextLayout::AlignToWidth(
-            TextLayout::Utf8ToWide(lines[i]),
-            width - 4,
-            TextLayout::HorizontalAlign::Left);
-
-        screen.DrawString(x + 2, y + 1 + static_cast<int>(i), alignedLine, COLOR_YELLOW);
+    for (size_t i = 0; i < renderedLines.size(); ++i) {
+        screen.DrawString(x + 2, y + 1 + static_cast<int>(i), renderedLines[i], COLOR_YELLOW);
     }
 }

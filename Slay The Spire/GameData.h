@@ -9,6 +9,9 @@
 
 // 카드 종류 열거형
 enum class CardType { Attack, Skill, Power, Status, Curse };
+enum class CardTargetType { None, Enemy, Self };
+enum class CardEffectType { None, AttackDamage, DefendBlock, ApplyVulnerable };
+enum class CardDiscardEffectType { None, DrawCardsGainEnergy };
 
 // 카드 데이터 구조체
 struct CardData {
@@ -17,6 +20,11 @@ struct CardData {
     int cost;
     std::string description;
     CardType type;
+    CardTargetType targetType = CardTargetType::None;
+    CardEffectType effectType = CardEffectType::None;
+    CardDiscardEffectType discardEffectType = CardDiscardEffectType::None;
+    int primaryValue = 0;
+    int secondaryValue = 0;
 };
 
 // 전투 개체(플레이어, 몬스터) 데이터 구조체
@@ -26,5 +34,8 @@ struct EntityData {
     int currentHp;
     int maxHp;
     int block;
-    // 추후 버프/디버프 배열 추가 예정
+    int strength = 0;
+    int vulnerable = 0;
+    int weak = 0;
+    int poison = 0;
 };

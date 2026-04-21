@@ -26,6 +26,31 @@ std::string GetCardTypeLabel(CardType type) {
 
 CardUI::CardUI(int x, int y, CardData* cardData)
     : UIElement(x, y, 28, 18), data(cardData), baseY(y) {
+    RebuildLayoutCache();
+}
+
+void CardUI::RebuildLayoutCache() {
+    cachedNameLine.clear();
+    cachedTypeLine.clear();
+    cachedDescriptionLines.clear();
+
+    if (data == nullptr) {
+        return;
+    }
+
+    cachedNameLine = BuildCardLine(TextLayout::Utf8ToWide(data->name), TextLayout::HorizontalAlign::Center);
+    cachedTypeLine = BuildCardLine(TextLayout::Utf8ToWide(GetCardTypeLabel(data->type)), TextLayout::HorizontalAlign::Center);
+
+    const TextLayout::WrappedText wrappedDescription = TextLayout::WrapUtf8(data->description, kCardInnerWidth);
+    cachedDescriptionLines.reserve(static_cast<size_t>(kDescriptionLineCount));
+
+    for (int lineIndex = 0; lineIndex < kDescriptionLineCount; ++lineIndex) {
+        std::wstring descriptionLine;
+        if (lineIndex < static_cast<int>(wrappedDescription.lines.size())) {
+            descriptionLine = wrappedDescription.lines[lineIndex];
+        }
+        cachedDescriptionLines.push_back(BuildCardLine(descriptionLine));
+    }
 }
 
 void CardUI::SetBasePosition(int newX, int newY) {
@@ -49,14 +74,11 @@ void CardUI::Render(ScreenManager& screen) {
     if (data == nullptr) return;
 
     const WORD color = isHovered ? COLOR_YELLOW : COLOR_WHITE;
-    const std::wstring cardName = TextLayout::Utf8ToWide(data->name);
-    const TextLayout::WrappedText wrappedDescription = TextLayout::WrapUtf8(data->description, kCardInnerWidth);
-    const std::wstring typeLabel = TextLayout::Utf8ToWide(GetCardTypeLabel(data->type));
 
     screen.DrawString(x, y + 0, ",--------------------------.", color);
     screen.DrawString(x, y + 1, "|[" + std::to_string(data->cost) + "]                       |", color);
     screen.DrawString(x, y + 2, "|                          |", color);
-    screen.DrawString(x, y + 3, BuildCardLine(cardName, TextLayout::HorizontalAlign::Center), color);
+    screen.DrawString(x, y + 3, cachedNameLine, color);
     screen.DrawString(x, y + 4, "|                          |", color);
     screen.DrawString(x, y + 5, "|       //========\\\\       |", color);
     screen.DrawString(x, y + 6, "|       ||  ART   ||       |", color);
@@ -64,15 +86,10 @@ void CardUI::Render(ScreenManager& screen) {
     screen.DrawString(x, y + 8, "|                          |", color);
 
     for (int lineIndex = 0; lineIndex < kDescriptionLineCount; ++lineIndex) {
-        std::wstring descriptionLine;
-        if (lineIndex < static_cast<int>(wrappedDescription.lines.size())) {
-            descriptionLine = wrappedDescription.lines[lineIndex];
-        }
-
-        screen.DrawString(x, y + kDescriptionTop + lineIndex, BuildCardLine(descriptionLine), color);
+        screen.DrawString(x, y + kDescriptionTop + lineIndex, cachedDescriptionLines[static_cast<size_t>(lineIndex)], color);
     }
 
-    screen.DrawString(x, y + 15, BuildCardLine(typeLabel, TextLayout::HorizontalAlign::Center), color);
+    screen.DrawString(x, y + 15, cachedTypeLine, color);
     screen.DrawString(x, y + 16, "|                          |", color);
     screen.DrawString(x, y + 17, "`--------------------------'", color);
 }
