@@ -61,6 +61,34 @@ void ApplyBorderlessFullscreen(HWND hwnd) {
     UpdateWindow(hwnd);
 }
 
+void SyncConsoleViewport(HANDLE hConsole, int& width, int& height, COORD& bufferSize, SMALL_RECT& windowRect) {
+    CONSOLE_SCREEN_BUFFER_INFO csbi = {};
+    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) {
+        return;
+    }
+
+    const short viewportWidth = static_cast<short>(csbi.srWindow.Right - csbi.srWindow.Left + 1);
+    const short viewportHeight = static_cast<short>(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
+
+    if (viewportWidth <= 0 || viewportHeight <= 0) {
+        return;
+    }
+
+    SMALL_RECT tempWindow = { 0, 0, 1, 1 };
+    SetConsoleWindowInfo(hConsole, TRUE, &tempWindow);
+
+    COORD exactBuffer = { viewportWidth, viewportHeight };
+    SetConsoleScreenBufferSize(hConsole, exactBuffer);
+
+    SMALL_RECT exactWindow = { 0, 0, static_cast<short>(viewportWidth - 1), static_cast<short>(viewportHeight - 1) };
+    SetConsoleWindowInfo(hConsole, TRUE, &exactWindow);
+
+    width = viewportWidth;
+    height = viewportHeight;
+    bufferSize = exactBuffer;
+    windowRect = exactWindow;
+}
+
 } // namespace
 
 ScreenManager::ScreenManager()
@@ -85,16 +113,10 @@ ScreenManager::ScreenManager()
     SetConsoleScreenBufferSize(hConsole, bufferSize);
     SetConsoleWindowInfo(hConsole, TRUE, &windowRect);
 
-    CONSOLE_SCREEN_BUFFER_INFO csbi = {};
-    if (GetConsoleScreenBufferInfo(hConsole, &csbi)) {
-        width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
-        height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
-        bufferSize = { static_cast<short>(width), static_cast<short>(height) };
-        windowRect = { 0, 0, static_cast<short>(width - 1), static_cast<short>(height - 1) };
-    }
-
     ApplyBorderlessFullscreen(GetConsoleWindow());
     Sleep(50);
+    SyncConsoleViewport(hConsole, width, height, bufferSize, windowRect);
+    ShowScrollBar(GetConsoleWindow(), SB_BOTH, FALSE);
 
     screenBuffer = new CHAR_INFO[width * height];
     Clear();

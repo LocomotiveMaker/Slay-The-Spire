@@ -39,6 +39,10 @@ const vector<vector<string>> FX_CAMPFIRE = {
 
 namespace {
 
+constexpr int kHandOverlapFewCards = 2;
+constexpr int kHandOverlapManyCards = 3;
+constexpr int kHandOverlapManyCardsThreshold = 5;
+
 struct Rect {
     int x = 0;
     int y = 0;
@@ -158,6 +162,56 @@ Rect ExpandRect(const Rect& rect, int padX, int padY) {
 
 Rect MakeEnergyPanelRect(const ScreenManager& screen) {
     return { 16, screen.GetHeight() - 16, 20, 6 };
+}
+
+int GetHandOverlapChars(int cardCount) {
+    if (cardCount >= kHandOverlapManyCardsThreshold) {
+        return kHandOverlapManyCards;
+    }
+
+    if (cardCount >= 2) {
+        return kHandOverlapFewCards;
+    }
+
+    return 0;
+}
+
+vector<int> BuildStableHandPositions(int screenWidth, int cardWidth, int handLimit, int centeredCount) {
+    vector<int> positions;
+    if (handLimit <= 0) {
+        return positions;
+    }
+
+    const int stableCenteredCount = (std::min)(handLimit, (std::max)(1, centeredCount));
+    const int baseSpacing = cardWidth - GetHandOverlapChars(stableCenteredCount);
+    const int baseWidth = cardWidth + ((stableCenteredCount - 1) * baseSpacing);
+    const int centeredStartX = (screenWidth - baseWidth) / 2;
+
+    positions.reserve(static_cast<size_t>(handLimit));
+
+    for (int index = 0; index < stableCenteredCount; ++index) {
+        positions.push_back(centeredStartX + (index * baseSpacing));
+    }
+
+    int leftmostX = centeredStartX;
+    int rightmostX = centeredStartX + ((stableCenteredCount - 1) * baseSpacing);
+    bool placeRightSide = true;
+
+    for (int totalCount = stableCenteredCount + 1; totalCount <= handLimit; ++totalCount) {
+        const int spacing = cardWidth - GetHandOverlapChars(totalCount);
+        if (placeRightSide) {
+            rightmostX += spacing;
+            positions.push_back(rightmostX);
+        }
+        else {
+            leftmostX -= spacing;
+            positions.push_back(leftmostX);
+        }
+
+        placeRightSide = !placeRightSide;
+    }
+
+    return positions;
 }
 
 void RenderFrameBox(ScreenManager& screen, const Rect& rect, WORD color) {
@@ -336,13 +390,13 @@ int main() {
 
     CombatSystem combat(&playerData, &enemyData);
     CombatConfig& combatConfig = combat.GetMutableConfig();
-    combatConfig.baseDrawIntervalSec = 2.5f;
-    combatConfig.minDrawIntervalSec = 1.3f;
-    combatConfig.baseEnergyIntervalSec = 3.0f;
-    combatConfig.minEnergyIntervalSec = 0.9f;
-    combatConfig.baseEnemyIntentIntervalSec = 6.0f;
-    combatConfig.minEnemyIntentIntervalSec = 2.0f;
-    combatConfig.speedGainPerEnemyAction = 0.05f;
+    combatConfig.baseDrawIntervalSec = 3.0f;
+    combatConfig.minDrawIntervalSec = 1.7f;
+    combatConfig.baseEnergyIntervalSec = 2.5f;
+    combatConfig.minEnergyIntervalSec = 1.3f;
+    combatConfig.baseEnemyIntentIntervalSec = 7.0f;
+    combatConfig.minEnemyIntentIntervalSec = 3.0f;
+    combatConfig.speedGainPerEnemyAction = 0.035f;
     combatConfig.dragSlowStrength = 0.04f;
     combatConfig.startingHandSize = 5;
     combatConfig.handLimit = 8;
@@ -352,6 +406,7 @@ int main() {
     vector<CardUI> handCardUIs;
     vector<FloatingText> floatingTexts;
     float impactPauseRemainingSec = 0.0f;
+    int stableHandCenterCount = combatConfig.startingHandSize;
     constexpr float kImpactPauseDurationSec = 0.035f;
     constexpr float kImpactPauseTimeScale = 0.15f;
 
@@ -371,6 +426,7 @@ int main() {
         floatingTexts.clear();
         arrow.SetActive(false);
         impactPauseRemainingSec = 0.0f;
+        stableHandCenterCount = static_cast<int>(combat.GetHand().size());
         };
 
     MapRenderer mapRenderer(screen.GetWidth(), screen.GetHeight());
@@ -396,6 +452,33 @@ int main() {
     ButtonUI btnRetry(screen.GetCenterX() - 8, screen.GetCenterY() + 2, 16, 3, u8"다시 시도", COLOR_WHITE, COLOR_YELLOW);
     defeatPopup.AddButton(btnRetry);
 
+    int draggedCardIndex = -1;
+
+    auto openBattlePopup = [&](bool didWin) {
+        draggedCardIndex = -1;
+        arrow.SetActive(false);
+        playerUI.SetTargeted(false);
+        enemyUI.SetTargeted(false);
+        contextTooltip.SetVisible(false);
+
+        if (didWin) {
+            victoryPopup.SetContents({
+                u8"실시간 전투가 종료되었습니다.",
+                string(u8"남은 체력 ") + to_string(playerData.currentHp) + "/" + to_string(playerData.maxHp),
+                string(u8"전투 속도 x") + FormatFloat(combat.GetSpeedMultiplier(), 2)
+                });
+            victoryPopup.Open();
+        }
+        else {
+            defeatPopup.SetContents({
+                u8"플레이어의 체력이 0이 되었습니다.",
+                string(u8"도달 속도 x") + FormatFloat(combat.GetSpeedMultiplier(), 2),
+                u8"다시 시도하기를 눌러 전투를 재시작합니다."
+                });
+            defeatPopup.Open();
+        }
+        };
+
     const int campfireX = 10;
     const int campfireY = centerY;
     Animator campfireAnim(campfireX, campfireY, FX_CAMPFIRE, 150, AnimMode::LOOP, FOREGROUND_RED | FOREGROUND_INTENSITY);
@@ -406,7 +489,6 @@ int main() {
     startPrototypeBattle();
 
     ViewState currentView = ViewState::Combat;
-    int draggedCardIndex = -1;
     bool isRunning = true;
     bool mKeyPressedLastFrame = false;
 
@@ -520,12 +602,7 @@ int main() {
                 }
 
                 if (combat.IsBattleOver()) {
-                    if (combat.DidPlayerWin()) {
-                        victoryPopup.Open();
-                    }
-                    else {
-                        defeatPopup.Open();
-                    }
+                    openBattlePopup(combat.DidPlayerWin());
                 }
             }
 
@@ -560,19 +637,50 @@ int main() {
 
                 const int numCards = static_cast<int>(handCardUIs.size());
                 const int cardWidth = 28;
-                const int overlapChars = (numCards <= 5) ? 2 : ((numCards <= 7) ? 3 : 4);
-                const int spacing = cardWidth - overlapChars;
-                const int totalHandWidth = (numCards > 0) ? cardWidth + (numCards - 1) * spacing : 0;
-                const int startX = (screen.GetWidth() - totalHandWidth) / 2;
                 const int startY = screen.GetHeight() - 18 - 2;
+                const vector<int> handPositions = BuildStableHandPositions(
+                    screen.GetWidth(),
+                    cardWidth,
+                    combat.GetHandLimit(),
+                    stableHandCenterCount);
 
                 for (int cardIndex = 0; cardIndex < numCards; ++cardIndex) {
-                    handCardUIs[cardIndex].SetBasePosition(startX + (cardIndex * spacing), startY);
+                    const int slotX = (cardIndex >= 0 && cardIndex < static_cast<int>(handPositions.size()))
+                        ? handPositions[static_cast<size_t>(cardIndex)]
+                        : 0;
+                    handCardUIs[cardIndex].SetBasePosition(slotX, startY);
+                }
+
+                vector<int> visualOrder;
+                visualOrder.reserve(static_cast<size_t>(numCards));
+                for (int cardIndex = 0; cardIndex < numCards; ++cardIndex) {
+                    visualOrder.push_back(cardIndex);
+                }
+
+                sort(visualOrder.begin(), visualOrder.end(), [&](int lhs, int rhs) {
+                    const int leftX = handCardUIs[lhs].GetX();
+                    const int rightX = handCardUIs[rhs].GetX();
+                    if (leftX == rightX) {
+                        return lhs < rhs;
+                    }
+                    return leftX < rightX;
+                    });
+
+                for (int cardIndex = 0; cardIndex < numCards; ++cardIndex) {
+                    handCardUIs[cardIndex].SetRightOcclusion(0);
+                }
+
+                for (size_t orderIndex = 0; orderIndex + 1 < visualOrder.size(); ++orderIndex) {
+                    const int currentIndex = visualOrder[orderIndex];
+                    const int nextIndex = visualOrder[orderIndex + 1];
+                    const int overlapChars = (std::max)(0, cardWidth - (handCardUIs[nextIndex].GetX() - handCardUIs[currentIndex].GetX()));
+                    handCardUIs[currentIndex].SetRightOcclusion(overlapChars);
                 }
 
                 int currentHoveredIndex = -1;
                 bool anyCardHovered = false;
-                for (int cardIndex = numCards - 1; cardIndex >= 0; --cardIndex) {
+                for (auto it = visualOrder.rbegin(); it != visualOrder.rend(); ++it) {
+                    const int cardIndex = *it;
                     if (!anyCardHovered && handCardUIs[cardIndex].Update(input)) {
                         anyCardHovered = true;
                         currentHoveredIndex = cardIndex;
@@ -627,6 +735,9 @@ int main() {
                     if (actionResult.success) {
                         if (actionResult.handChanged) {
                             syncHandUI();
+                            if (dropTarget != CombatDropTarget::DiscardPile) {
+                                stableHandCenterCount = static_cast<int>(combat.GetHand().size());
+                            }
                         }
 
                         if (actionResult.damageToEnemy > 0) {
@@ -652,12 +763,7 @@ int main() {
                         }
 
                         if (combat.IsBattleOver()) {
-                            if (combat.DidPlayerWin()) {
-                                victoryPopup.Open();
-                            }
-                            else {
-                                defeatPopup.Open();
-                            }
+                            openBattlePopup(combat.DidPlayerWin());
                         }
                     }
                     else if (!actionResult.message.empty()) {
@@ -706,17 +812,35 @@ int main() {
             playerUI.Render(screen);
             enemyUI.Render(screen);
 
-            const int topRenderIndex = draggedCardIndex;
-            for (int cardIndex = 0; cardIndex < static_cast<int>(handCardUIs.size()); ++cardIndex) {
-                if (cardIndex != topRenderIndex) {
-                    handCardUIs[cardIndex].Render(screen);
+            if (!popupVisible) {
+                const int topRenderIndex = draggedCardIndex;
+                vector<int> visualOrder;
+                visualOrder.reserve(handCardUIs.size());
+                for (int cardIndex = 0; cardIndex < static_cast<int>(handCardUIs.size()); ++cardIndex) {
+                    visualOrder.push_back(cardIndex);
                 }
-            }
-            if (topRenderIndex != -1 && topRenderIndex < static_cast<int>(handCardUIs.size())) {
-                handCardUIs[topRenderIndex].Render(screen);
-            }
 
-            arrow.Render(screen);
+                sort(visualOrder.begin(), visualOrder.end(), [&](int lhs, int rhs) {
+                    const int leftX = handCardUIs[lhs].GetX();
+                    const int rightX = handCardUIs[rhs].GetX();
+                    if (leftX == rightX) {
+                        return lhs < rhs;
+                    }
+                    return leftX < rightX;
+                    });
+
+                for (int cardIndex : visualOrder) {
+                    if (cardIndex != topRenderIndex) {
+                        handCardUIs[cardIndex].Render(screen);
+                    }
+                }
+
+                if (topRenderIndex != -1 && topRenderIndex < static_cast<int>(handCardUIs.size())) {
+                    handCardUIs[topRenderIndex].Render(screen);
+                }
+
+                arrow.Render(screen);
+            }
             for (auto& text : floatingTexts) {
                 text.Render(screen);
             }

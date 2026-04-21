@@ -7,8 +7,16 @@ constexpr int kCardInnerWidth = 26;
 constexpr int kDescriptionTop = 9;
 constexpr int kDescriptionLineCount = 6;
 
-std::wstring BuildCardLine(const std::wstring& content, TextLayout::HorizontalAlign align = TextLayout::HorizontalAlign::Left) {
-    return L"|" + TextLayout::AlignToWidth(content, kCardInnerWidth, align) + L"|";
+std::wstring BuildCardLine(
+    const std::wstring& content,
+    TextLayout::HorizontalAlign align = TextLayout::HorizontalAlign::Left,
+    int reservedRightWidth = 0) {
+    const int safeReservedWidth = (std::max)(0, (std::min)(kCardInnerWidth - 1, reservedRightWidth));
+    const int visibleWidth = kCardInnerWidth - safeReservedWidth;
+    return L"|" +
+        TextLayout::AlignToWidth(content, visibleWidth, align) +
+        std::wstring(static_cast<size_t>(safeReservedWidth), L' ') +
+        L"|";
 }
 
 std::string GetCardTypeLabel(CardType type) {
@@ -25,7 +33,7 @@ std::string GetCardTypeLabel(CardType type) {
 } // namespace
 
 CardUI::CardUI(int x, int y, CardData* cardData)
-    : UIElement(x, y, 28, 18), data(cardData), baseY(y) {
+    : UIElement(x, y, 28, 18), data(cardData), baseY(y), rightOcclusionChars(0) {
     RebuildLayoutCache();
 }
 
@@ -41,7 +49,9 @@ void CardUI::RebuildLayoutCache() {
     cachedNameLine = BuildCardLine(TextLayout::Utf8ToWide(data->name), TextLayout::HorizontalAlign::Center);
     cachedTypeLine = BuildCardLine(TextLayout::Utf8ToWide(GetCardTypeLabel(data->type)), TextLayout::HorizontalAlign::Center);
 
-    const TextLayout::WrappedText wrappedDescription = TextLayout::WrapUtf8(data->description, kCardInnerWidth);
+    const int hiddenDescriptionWidth = (std::max)(0, rightOcclusionChars - 1);
+    const int visibleDescriptionWidth = (std::max)(1, kCardInnerWidth - hiddenDescriptionWidth);
+    const TextLayout::WrappedText wrappedDescription = TextLayout::WrapUtf8(data->description, visibleDescriptionWidth);
     cachedDescriptionLines.reserve(static_cast<size_t>(kDescriptionLineCount));
 
     for (int lineIndex = 0; lineIndex < kDescriptionLineCount; ++lineIndex) {
@@ -49,13 +59,23 @@ void CardUI::RebuildLayoutCache() {
         if (lineIndex < static_cast<int>(wrappedDescription.lines.size())) {
             descriptionLine = wrappedDescription.lines[lineIndex];
         }
-        cachedDescriptionLines.push_back(BuildCardLine(descriptionLine));
+        cachedDescriptionLines.push_back(BuildCardLine(descriptionLine, TextLayout::HorizontalAlign::Left, hiddenDescriptionWidth));
     }
 }
 
 void CardUI::SetBasePosition(int newX, int newY) {
     SetPosition(newX, newY);
     baseY = newY;
+}
+
+void CardUI::SetRightOcclusion(int chars) {
+    const int safeChars = (std::max)(0, chars);
+    if (rightOcclusionChars == safeChars) {
+        return;
+    }
+
+    rightOcclusionChars = safeChars;
+    RebuildLayoutCache();
 }
 
 bool CardUI::Update(InputManager& input) {
