@@ -1,7 +1,7 @@
 param()
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$solutionPath = Join-Path $repoRoot "STSTest.sln"
+$solutionPath = Join-Path $repoRoot "Slay The Spire.sln"
 $vswherePath = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
 
 if (-not (Test-Path $vswherePath)) {

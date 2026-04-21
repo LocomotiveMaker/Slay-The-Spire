@@ -2,6 +2,7 @@
 // @file       TargetingArrow.cpp
 // -----------------------------------------------------------------------------
 #include "TargetingArrow.h"
+#include <algorithm>
 #include <cmath>
 
 #ifndef M_PI
@@ -91,7 +92,7 @@ void TargetingArrow::Render(ScreenManager& screen) {
     // 슬더스 특유의 낭창낭창한 느낌을 내기 위해, 시작점과 끝점 사이의 중간 지점에서 
     // 위쪽(또는 옆쪽)으로 살짝 띄운 좌표를 제어점으로 잡습니다.
     int cpX = startX + (endX - startX) / 2;
-    int cpY = min(startY, endY) - 10; // 곡선이 위로 살짝 휘어지도록 만듦
+    int cpY = std::min(startY, endY) - 10; // 곡선이 위로 살짝 휘어지도록 만듦
 
     // 선을 이루는 점의 개수 (해상도에 따라 조절)
     int steps = 25;

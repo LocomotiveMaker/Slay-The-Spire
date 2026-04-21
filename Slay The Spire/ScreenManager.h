@@ -4,6 +4,9 @@
 // @note       직접적인 cout 사용을 금지하고, 이 클래스의 버퍼를 통해서만 출력할 것.
 // -----------------------------------------------------------------------------
 #pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <string>
 
@@ -26,6 +29,9 @@ private:
 
     // 디스플레이 환경 동기화를 위한 내부 헬퍼 함수
     void ApplyDisplaySettings();
+    void ResetCell(int x, int y);
+    void ClearWideGlyphAt(int x, int y);
+    void DrawGlyph(int x, int y, wchar_t ch, WORD color, int cellWidth);
 
 public:
     ScreenManager();
@@ -43,5 +49,7 @@ public:
 
     // 그리기 함수
     void DrawChar(int x, int y, char ch, WORD color = COLOR_WHITE);
+    void DrawChar(int x, int y, wchar_t ch, WORD color = COLOR_WHITE);
     void DrawString(int x, int y, const std::string& str, WORD color = COLOR_WHITE);
+    void DrawString(int x, int y, const std::wstring& str, WORD color = COLOR_WHITE);
 };

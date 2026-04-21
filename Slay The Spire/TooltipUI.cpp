@@ -2,6 +2,7 @@
 // @file       TooltipUI.cpp
 // -----------------------------------------------------------------------------
 #include "TooltipUI.h"
+#include "TextLayout.h"
 #include <algorithm>
 
 TooltipUI::TooltipUI() : UIElement(0, 0, 0, 0), isVisible(false) {}
@@ -9,15 +10,9 @@ TooltipUI::TooltipUI() : UIElement(0, 0, 0, 0), isVisible(false) {}
 void TooltipUI::SetText(const std::vector<std::string>& textLines) {
     lines = textLines;
 
-    // 가장 긴 문자열을 기준으로 너비 설정
-    int maxWidth = 0;
-    for (const auto& line : lines) {
-        if ((int)line.length() > maxWidth) {
-            maxWidth = (int)line.length();
-        }
-    }
-    width = maxWidth + 4; // 좌우 여백 포함
-    height = lines.size() + 2; // 상하 테두리 포함
+    const int contentWidth = TextLayout::ComputeBoxWidth(lines);
+    width = contentWidth + 4; // 좌우 테두리 + 내부 여백 1칸씩
+    height = TextLayout::ComputeBoxHeight(static_cast<int>(lines.size())) + 2;
 }
 
 void TooltipUI::SetVisible(bool state) {
@@ -41,6 +36,14 @@ void TooltipUI::UpdatePosition(int mouseX, int mouseY, int screenWidth, int scre
     if (y + height > screenHeight) {
         y = screenHeight - height;
     }
+
+    if (x < 0) {
+        x = 0;
+    }
+
+    if (y < 0) {
+        y = 0;
+    }
 }
 
 bool TooltipUI::Update(InputManager& input) {
@@ -52,7 +55,7 @@ void TooltipUI::Render(ScreenManager& screen) {
 
     // 배경을 공백으로 지우기 (투명화 방지)
     for (int i = 0; i < height; ++i) {
-        screen.DrawString(x, y + i, std::string(width, ' '), COLOR_WHITE);
+        screen.DrawString(x, y + i, std::wstring(static_cast<size_t>(width), L' '), COLOR_WHITE);
     }
 
     // 테두리
@@ -65,6 +68,11 @@ void TooltipUI::Render(ScreenManager& screen) {
 
     // 텍스트 출력
     for (size_t i = 0; i < lines.size(); ++i) {
-        screen.DrawString(x + 2, y + 1 + i, lines[i], COLOR_YELLOW);
+        const std::wstring alignedLine = TextLayout::AlignToWidth(
+            TextLayout::Utf8ToWide(lines[i]),
+            width - 4,
+            TextLayout::HorizontalAlign::Left);
+
+        screen.DrawString(x + 2, y + 1 + static_cast<int>(i), alignedLine, COLOR_YELLOW);
     }
 }

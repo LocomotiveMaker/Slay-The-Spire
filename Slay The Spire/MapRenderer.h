@@ -43,4 +43,5 @@ public:
     void GenerateDummyMap();
     void Update(InputManager& input);
     void Render(ScreenManager& screen);
+    bool TryGetNodeTooltip(int mouseX, int mouseY, std::vector<std::string>& outLines) const;
 };

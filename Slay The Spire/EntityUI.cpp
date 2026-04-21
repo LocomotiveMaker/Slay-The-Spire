@@ -1,31 +1,31 @@
-﻿// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // @file       EntityUI.cpp
 // -----------------------------------------------------------------------------
 #include "EntityUI.h"
+#include "TextLayout.h"
 
 EntityUI::EntityUI(int x, int y, EntityData* entityData, bool isPlayer)
     : UIElement(x, y, 20, 10), data(entityData), isPlayer(isPlayer), isTargeted(false), hitAnimationTimer(0)
 {
-    // 체력바 객체 동적 할당 (너비 20 고정, y좌표는 아트 하단)
     WORD hpColor = isPlayer ? COLOR_GREEN : COLOR_RED;
-    healthBar = new ProgressBarUI(x, y + height - 1, width, &(data->currentHp), &(data->maxHp), "HP", COLOR_WHITE, hpColor);
+    healthBar = new ProgressBarUI(x, y + height - 1, width, &(data->currentHp), &(data->maxHp), u8"체력", COLOR_WHITE, hpColor);
 
     if (isPlayer) {
         asciiArt = {
             "       _      ",
             "     _( )_    ",
             "    |     |   ",
-            "    |/-\\|   ",
+            "    |/-\\\\|    ",
             "      | |     "
         };
     }
     else {
         asciiArt = {
-            "    /\\_/\\    ",
+            "    /\\\\_/\\\\    ",
             "   ( o.o )   ",
             "    > ^ <    ",
-            "   /  _  \\   ",
-            "  / /| |\\ \\  "
+            "   /  _  \\\\   ",
+            "  / /| |\\\\ \\\\  "
         };
     }
 }
@@ -47,7 +47,6 @@ bool EntityUI::Update(InputManager& input) {
         hitAnimationTimer--;
     }
 
-    // UI 위치가 변경될 경우 체력바 위치도 동기화 필요 시 여기에 로직 추가
     healthBar->SetPosition(x, y + height - 1);
     healthBar->Update(input);
 
@@ -70,17 +69,20 @@ void EntityUI::Render(ScreenManager& screen) {
         color = COLOR_YELLOW;
     }
 
-    int artStartY = y + 2;
+    const int artStartY = y + 2;
     for (size_t i = 0; i < asciiArt.size(); ++i) {
-        int pad = (width - (int)asciiArt[i].length()) / 2;
+        int pad = (width - static_cast<int>(asciiArt[i].length())) / 2;
         if (pad < 0) pad = 0;
-        screen.DrawString(renderX + pad, artStartY + i, asciiArt[i], color);
+        screen.DrawString(renderX + pad, artStartY + static_cast<int>(i), asciiArt[i], color);
     }
 
-    // 모듈화된 체력바 렌더링
     healthBar->Render(screen);
 
     if (isTargeted) {
-        screen.DrawString(renderX + 5, y, "[ TARGET ]", COLOR_YELLOW);
+        const std::wstring targetLabel = TextLayout::AlignToWidth(
+            TextLayout::Utf8ToWide(u8"[ 조준 중 ]"),
+            width,
+            TextLayout::HorizontalAlign::Center);
+        screen.DrawString(renderX, y, targetLabel, COLOR_YELLOW);
     }
 }

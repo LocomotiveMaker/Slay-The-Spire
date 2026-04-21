@@ -16,8 +16,10 @@
 [Rr]elease/
 x64/
 x86/
-STSTest/x64/
-STSTest/x86/
+.build/
+capture/
+Slay The Spire/x64/
+Slay The Spire/x86/
 
 # C/C++ intermediates and binaries
 *.d
@@ -36,5 +38,5 @@ STSTest/x86/
 *.log
 
 # Keep source assets inside the project tree
-!STSTest/Assets/
-!STSTest/Assets/**
+!Slay The Spire/Assets/
+!Slay The Spire/Assets/**

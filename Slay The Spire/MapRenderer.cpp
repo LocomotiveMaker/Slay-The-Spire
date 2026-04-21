@@ -1,19 +1,47 @@
-﻿// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // @file       MapRenderer.cpp
 // -----------------------------------------------------------------------------
 #include "MapRenderer.h"
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+
+namespace {
+
+std::string GetNodeTitle(NodeType type) {
+    switch (type) {
+    case NodeType::Monster: return u8"전투";
+    case NodeType::Elite:   return u8"정예";
+    case NodeType::Rest:    return u8"휴식";
+    case NodeType::Shop:    return u8"상점";
+    case NodeType::Unknown: return u8"미지";
+    case NodeType::Boss:    return u8"보스";
+    default:                return u8"노드";
+    }
+}
+
+std::string GetNodeDescription(NodeType type) {
+    switch (type) {
+    case NodeType::Monster: return u8"일반 적과 전투합니다.";
+    case NodeType::Elite:   return u8"강한 적과 전투하고, 유물을 얻습니다.";
+    case NodeType::Rest:    return u8"체력을 회복하거나, 카드를 강화합니다.";
+    case NodeType::Shop:    return u8"골드로 카드, 포션, 유물을 구매합니다.";
+    case NodeType::Unknown: return u8"이벤트가 발생하며, 선택에 따라 결과가 바뀝니다.";
+    case NodeType::Boss:    return u8"보스전입니다. 전시의 핵심 전투가 기다립니다.";
+    default:                return u8"설명이 준비되지 않았습니다.";
+    }
+}
+
+} // namespace
 
 MapRenderer::MapRenderer(int width, int height)
-    : screenWidth(width), screenHeight(height), cameraY(0.0f), targetCameraY(0.0f) {
+    : screenWidth(width), screenHeight(height), cameraY(0.0f), targetCameraY(0.0f), maxMapHeight(0), minCameraY(0.0f), maxCameraY(0.0f) {
 }
 
 void MapRenderer::GenerateDummyMap() {
     nodes.clear();
     int startX = screenWidth / 2;
-    int startY = screenHeight - 15; // 뷰포트 하단 근처
-    int ySpacing = 20; // 층 간격
+    int startY = screenHeight - 15;
+    int ySpacing = 20;
 
     nodes.push_back({ 0, startX - 25, startY, NodeType::Monster, {3, 4} });
     nodes.push_back({ 1, startX,      startY, NodeType::Monster, {4} });
@@ -28,13 +56,9 @@ void MapRenderer::GenerateDummyMap() {
 
     nodes.push_back({ 8, startX,      startY - ySpacing * 3, NodeType::Boss,  {} });
 
-    // 카메라 스크롤 한계값 동적 계산
-    // boss.y가 화면 상단(예: y=10)에 오도록 하는 cameraY 값
-    minCameraY = (startY - ySpacing * 3) - 20;
-    // bottom node가 화면 하단에 오도록 하는 cameraY 값 (초기 위치)
+    maxMapHeight = ySpacing * 3;
+    minCameraY = static_cast<float>((startY - maxMapHeight) - 20);
     maxCameraY = 20.0f;
-
-    // 초기 카메라 위치 세팅
     cameraY = maxCameraY;
     targetCameraY = maxCameraY;
 }
@@ -70,27 +94,24 @@ void MapRenderer::DrawPath(ScreenManager& screen, int x1, int y1, int x2, int y2
     int sy = (y1 < y2) ? 1 : -1;
     int err = dx - dy;
 
-    // 노드 박스 크기(5x3)를 고려하여 중심부터 일정 거리(반지름 약 4)는 그리지 않음
     int skipMargin = 5;
 
     while (true) {
         if (x1 == x2 && y1 == y2) break;
 
-        int renderY = y1 - (int)cameraY;
-
-        // 시작점과 끝점 근처는 그리지 않음 (노드 아트를 침범하지 않게)
-        bool isOutsideMargin = (std::abs(x1 - x2) + std::abs(y1 - y2) > skipMargin) &&
+        int renderY = y1 - static_cast<int>(cameraY);
+        bool isOutsideMargin =
+            (std::abs(x1 - x2) + std::abs(y1 - y2) > skipMargin) &&
             (std::abs(x1 - (x2 - dx * sx)) + std::abs(y1 - (y2 - dy * sy)) > skipMargin);
 
         if (renderY >= 0 && renderY < screenHeight && isOutsideMargin) {
             char pathChar = '.';
-            if (dx > dy * 1.5) pathChar = (sx * sy > 0) ? '\\' : '/';
+            if (dx > dy * 1.5f) pathChar = (sx * sy > 0) ? '\\' : '/';
             else if (dy > dx * 2) pathChar = '|';
 
-            // 경로를 굵게 보이기 위해 가로로 2칸씩 렌더링
             if ((x1 + y1) % 2 == 0) {
                 screen.DrawChar(x1, renderY, pathChar, FOREGROUND_INTENSITY);
-                screen.DrawChar(x1 + 1, renderY, pathChar, FOREGROUND_INTENSITY); // 두께 추가
+                screen.DrawChar(x1 + 1, renderY, pathChar, FOREGROUND_INTENSITY);
             }
         }
 
@@ -101,14 +122,13 @@ void MapRenderer::DrawPath(ScreenManager& screen, int x1, int y1, int x2, int y2
 }
 
 void MapRenderer::Update(InputManager& input) {
-    float scrollSpeed = 5.0f;
-    int wheel = input.GetWheelDelta();
+    const float scrollSpeed = 5.0f;
+    const int wheel = input.GetWheelDelta();
 
     if (wheel != 0) {
         targetCameraY -= wheel * scrollSpeed;
     }
 
-    // 카메라 스크롤 한계 적용 (Clamping)
     if (targetCameraY < minCameraY) targetCameraY = minCameraY;
     if (targetCameraY > maxCameraY) targetCameraY = maxCameraY;
 
@@ -116,30 +136,47 @@ void MapRenderer::Update(InputManager& input) {
 }
 
 void MapRenderer::Render(ScreenManager& screen) {
-    // 경로 렌더링
     for (const auto& node : nodes) {
         for (int nextId : node.nextNodes) {
-            auto it = std::find_if(nodes.begin(), nodes.end(), [nextId](const MapNode& n) { return n.id == nextId; });
+            auto it = std::find_if(nodes.begin(), nodes.end(), [nextId](const MapNode& nextNode) {
+                return nextNode.id == nextId;
+            });
             if (it != nodes.end()) {
                 DrawPath(screen, node.x, node.y, it->x, it->y);
             }
         }
     }
 
-    // 노드 박스 렌더링 (5x3 크기의 사각형)
     for (const auto& node : nodes) {
-        int renderY = node.y - (int)cameraY;
-        if (renderY < -3 || renderY > screen.GetHeight()) continue; // 화면 밖 Culling
+        const int renderY = node.y - static_cast<int>(cameraY);
+        if (renderY < -3 || renderY > screen.GetHeight()) continue;
 
-        std::string icon = GetNodeIcon(node.type);
-        WORD color = GetNodeColor(node.type);
-
-        // 5x3 박스 렌더링 (중심 정렬)
-        int boxX = node.x - 2;
-        int boxY = renderY - 1;
+        const std::string icon = GetNodeIcon(node.type);
+        const WORD color = GetNodeColor(node.type);
+        const int boxX = node.x - 2;
+        const int boxY = renderY - 1;
 
         screen.DrawString(boxX, boxY, "-----", color);
         screen.DrawString(boxX, boxY + 1, "|" + icon + "|", color);
         screen.DrawString(boxX, boxY + 2, "-----", color);
     }
+}
+
+bool MapRenderer::TryGetNodeTooltip(int mouseX, int mouseY, std::vector<std::string>& outLines) const {
+    for (const auto& node : nodes) {
+        const int renderY = node.y - static_cast<int>(cameraY);
+        const int boxX = node.x - 2;
+        const int boxY = renderY - 1;
+
+        if (mouseX >= boxX && mouseX < boxX + 5 && mouseY >= boxY && mouseY < boxY + 3) {
+            outLines = {
+                GetNodeTitle(node.type),
+                GetNodeDescription(node.type)
+            };
+            return true;
+        }
+    }
+
+    outLines.clear();
+    return false;
 }
