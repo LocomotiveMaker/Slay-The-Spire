@@ -15,13 +15,16 @@ private:
     // 현재 프레임 상태
     bool isLeftPressed;
     bool isRightPressed;
+    bool isEscPressed;
+    bool isMapHotkeyPressed;
+    bool escPressedDownThisFrame;
+    bool mapHotkeyPressedDownThisFrame;
 
     // 이전 프레임 상태 (Down/Up 감지용)
     bool wasLeftPressed;
     bool wasRightPressed;
 
     int wheelDelta;
-    bool isEscPressed;
 
 public:
     InputManager();
@@ -38,4 +41,6 @@ public:
 
     int GetWheelDelta() const { return wheelDelta; }
     bool IsEscPressed() const { return isEscPressed; }
+    bool IsEscPressedDown() const { return escPressedDownThisFrame; }
+    bool IsMapHotkeyPressedDown() const { return mapHotkeyPressedDownThisFrame; }
 };

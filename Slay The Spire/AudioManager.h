@@ -9,17 +9,33 @@
 class AudioManager {
 private:
     int masterVolume;
+    int bgmVolume;
     int sfxVolume;
     std::wstring exeDir;
+    std::wstring currentBgmFile;
+    std::wstring queuedBgmFile;
+    float currentBgmPercent;
+    float fadeStartPercent;
+    float targetBgmPercent;
+    float fadeDurationSec;
+    float fadeElapsedSec;
+    float queuedFadeInSec;
+    float queuedTargetPercent;
+    bool isFadingOutForSwitch;
 
     std::wstring GetExeDir() const;
+    int BuildScaledVolumeValue(float logicalPercent, bool bgmChannel) const;
+    void SetBGMVolumeInternal(float logicalPercent);
 
 public:
     AudioManager();
 
-    void PlayBGM(const std::wstring& filename);
+    void PlayBGM(const std::wstring& filename, float logicalPercent = 100.0f);
+    void QueueBGMFade(const std::wstring& filename, float targetPercent, float fadeOutSec, float fadeInSec);
+    void FadeCurrentBGMTo(float targetPercent, float durationSec);
+    void Update(float deltaTimeSec);
 
-    void SetVolumes(int master, int sfx);
+    void SetVolumes(int master, int bgm, int sfx);
     void PlayEffect(const std::wstring& filename, const std::wstring& alias, bool loop = false);
     void StopEffect(const std::wstring& alias);
 

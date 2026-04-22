@@ -176,6 +176,8 @@
     <ClCompile Include="MapRenderer.cpp" />
     <ClCompile Include="ModalPopupUI.cpp" />
     <ClCompile Include="ProgressBarUI.cpp" />
+    <ClCompile Include="RunState.cpp" />
+    <ClCompile Include="SaveManager.cpp" />
     <ClCompile Include="ScreenManager.cpp" />
     <ClCompile Include="TargetingArrow.cpp" />
     <ClCompile Include="TextLayout.cpp" />
@@ -195,6 +197,8 @@
     <ClInclude Include="MapRenderer.h" />
     <ClInclude Include="ModalPopupUI.h" />
     <ClInclude Include="ProgressBarUI.h" />
+    <ClInclude Include="RunState.h" />
+    <ClInclude Include="SaveManager.h" />
     <ClInclude Include="ScreenManager.h" />
     <ClInclude Include="TargetingArrow.h" />
     <ClInclude Include="TextLayout.h" />

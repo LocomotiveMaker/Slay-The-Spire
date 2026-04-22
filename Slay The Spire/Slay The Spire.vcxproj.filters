@@ -63,6 +63,12 @@
     <ClCompile Include="TextLayout.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="RunState.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="SaveManager.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ScreenManager.h">
@@ -117,6 +123,12 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="TextLayout.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="RunState.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="SaveManager.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

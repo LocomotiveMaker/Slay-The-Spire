@@ -25,6 +25,7 @@ struct CardData {
     CardDiscardEffectType discardEffectType = CardDiscardEffectType::None;
     int primaryValue = 0;
     int secondaryValue = 0;
+    int upgradeLevel = 0;
 };
 
 // 전투 개체(플레이어, 몬스터) 데이터 구조체
@@ -38,4 +39,17 @@ struct EntityData {
     int vulnerable = 0;
     int weak = 0;
     int poison = 0;
+};
+
+struct RelicData {
+    int id = 0;
+    std::string name;
+    std::string description;
+};
+
+struct PotionData {
+    int id = 0;
+    std::string name;
+    std::string description;
+    bool battleOnly = false;
 };

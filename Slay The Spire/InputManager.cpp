@@ -1,7 +1,17 @@
 ﻿#include "InputManager.h"
 
 InputManager::InputManager()
-    : mouseX(0), mouseY(0), isLeftPressed(false), isRightPressed(false), wheelDelta(0), isEscPressed(false)
+    : mouseX(0),
+    mouseY(0),
+    isLeftPressed(false),
+    isRightPressed(false),
+    isEscPressed(false),
+    isMapHotkeyPressed(false),
+    escPressedDownThisFrame(false),
+    mapHotkeyPressedDownThisFrame(false),
+    wasLeftPressed(false),
+    wasRightPressed(false),
+    wheelDelta(0)
 {
     hConsoleInput = GetStdHandle(STD_INPUT_HANDLE);
 
@@ -17,6 +27,8 @@ void InputManager::Update() {
     wasRightPressed = isRightPressed;
     // 매 프레임마다 휠 델타는 0으로 초기화 (이벤트 발생 시에만 값이 들어감)
     wheelDelta = 0;
+    escPressedDownThisFrame = false;
+    mapHotkeyPressedDownThisFrame = false;
 
     DWORD numEvents = 0;
     GetNumberOfConsoleInputEvents(hConsoleInput, &numEvents);
@@ -49,7 +61,17 @@ void InputManager::Update() {
             else if (eventBuffer[i].EventType == KEY_EVENT) {
                 KEY_EVENT_RECORD keyEvent = eventBuffer[i].Event.KeyEvent;
                 if (keyEvent.wVirtualKeyCode == VK_ESCAPE) {
+                    if (keyEvent.bKeyDown && !isEscPressed) {
+                        escPressedDownThisFrame = true;
+                    }
                     isEscPressed = keyEvent.bKeyDown;
+                }
+
+                if (keyEvent.wVirtualKeyCode == 'M' || keyEvent.uChar.UnicodeChar == L'ㅡ') {
+                    if (keyEvent.bKeyDown && !isMapHotkeyPressed) {
+                        mapHotkeyPressedDownThisFrame = true;
+                    }
+                    isMapHotkeyPressed = keyEvent.bKeyDown;
                 }
             }
         }
