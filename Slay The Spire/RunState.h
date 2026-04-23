@@ -206,6 +206,29 @@ struct EventRoomState {
     std::string resultText;
 };
 
+struct BattleRewardState {
+    bool active = false;
+    bool goldAvailable = false;
+    int goldAmount = 0;
+    bool goldClaimed = false;
+    bool potionAvailable = false;
+    bool potionClaimed = false;
+    bool cardRewardAvailable = false;
+    bool cardRewardClaimed = false;
+    bool cardSelectionOpen = false;
+    std::string title;
+    std::string message;
+    PotionData potion = {};
+    std::vector<CardData> cardChoices;
+};
+
+struct BattleRoomState {
+    bool initialized = false;
+    EntityData enemy = {};
+    std::string introText;
+    BattleRewardState rewards = {};
+};
+
 struct NodeEntrySnapshot {
     bool valid = false;
     int nodeId = -1;
@@ -238,6 +261,8 @@ struct RunStateData {
     std::vector<PotionData> potions;
     std::vector<RunNodeState> nodes;
     std::vector<RunNodeType> visitedNodeTypes;
+    std::string currentRoomSummaryTitle;
+    std::string currentRoomSummaryText;
     RunSceneType scene = RunSceneType::CardPackSelect;
     RunOverlayType overlay = RunOverlayType::None;
     ConfirmActionType pendingConfirm = ConfirmActionType::None;
@@ -247,6 +272,7 @@ struct RunStateData {
     bool pendingExitToTitle = false;
     int selectedStarterPackIndex = -1;
     NodeEntrySnapshot nodeEntrySnapshot = {};
+    BattleRoomState battleRoom = {};
     ShopRoomState shopRoom = {};
     RestRoomState restRoom = {};
     TreasureRoomState treasureRoom = {};

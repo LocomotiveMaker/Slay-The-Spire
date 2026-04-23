@@ -171,6 +171,41 @@ void InitializeShopRoom(RunStateData& run) {
     run.shopRoom.offers.push_back(potionOffer);
 }
 
+EntityData BuildEnemyTemplateForRoom(RunNodeType type) {
+    switch (type) {
+    case RunNodeType::Elite:
+        return { 9100, u8"수호 슬라임", 72, 72, 0, 1, 0, 0, 0 };
+    case RunNodeType::Boss:
+        return { 9200, u8"수호자 프로토타입", 130, 130, 0, 2, 0, 0, 0 };
+    case RunNodeType::Battle:
+    default:
+        return { 9000, u8"훈련용 슬라임", 48, 48, 0, 0, 0, 0, 0 };
+    }
+}
+
+void InitializeBattleRoom(RunStateData& run) {
+    if (run.battleRoom.initialized) {
+        return;
+    }
+
+    run.battleRoom = {};
+    run.battleRoom.initialized = true;
+    run.battleRoom.enemy = BuildEnemyTemplateForRoom(run.currentRoomType);
+
+    switch (run.currentRoomType) {
+    case RunNodeType::Elite:
+        run.battleRoom.introText = u8"일반 적보다 더 빠르고 단단한 엘리트 전투입니다.";
+        break;
+    case RunNodeType::Boss:
+        run.battleRoom.introText = u8"막의 끝을 지키는 보스전입니다.";
+        break;
+    case RunNodeType::Battle:
+    default:
+        run.battleRoom.introText = u8"실시간 카드 전투 프로토타입 전투입니다.";
+        break;
+    }
+}
+
 void InitializeRestRoom(RunStateData& run) {
     if (run.restRoom.initialized) {
         return;
@@ -676,6 +711,8 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
     run.playerName = run.player.name;
     run.selectedStarterPackIndex = -1;
     run.nodeEntrySnapshot = {};
+    run.currentRoomSummaryTitle.clear();
+    run.currentRoomSummaryText.clear();
     run.relics.push_back(MakeRelic(1, u8"불타는 피", u8"전투 종료 후 체력을 6 회복합니다."));
     run.potions.push_back(MakePotion(2, u8"회복 포션", u8"체력을 소량 회복합니다.", false));
 
@@ -691,14 +728,22 @@ void ApplyStarterPack(RunStateData& run, const CardPackOption& pack) {
 }
 
 void ResetRoomRuntimeState(RunStateData& run) {
+    run.battleRoom = {};
     run.shopRoom = {};
     run.restRoom = {};
     run.treasureRoom = {};
     run.eventRoom = {};
+    run.currentRoomSummaryTitle.clear();
+    run.currentRoomSummaryText.clear();
 }
 
 void PrepareCurrentRoomState(RunStateData& run) {
     switch (run.currentRoomType) {
+    case RunNodeType::Battle:
+    case RunNodeType::Elite:
+    case RunNodeType::Boss:
+        InitializeBattleRoom(run);
+        break;
     case RunNodeType::Shop:
         InitializeShopRoom(run);
         break;
@@ -849,7 +894,6 @@ void ResolveCurrentNode(RunStateData& run, RunNodeResultType result) {
     run.currentRoomResult = result;
     run.roomResolved = true;
     run.nodeEntrySnapshot = {};
-    ResetRoomRuntimeState(run);
 
     if (result == RunNodeResultType::Victory || result == RunNodeResultType::Resolved || result == RunNodeResultType::Escape) {
         UnlockNextNodes(run, node->id);

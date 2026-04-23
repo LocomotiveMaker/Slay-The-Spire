@@ -4,6 +4,7 @@
 #include "AudioManager.h"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 #pragma comment(lib, "winmm.lib")
 
@@ -44,6 +45,9 @@ void AudioManager::SetBGMVolumeInternal(float logicalPercent) {
 
 void AudioManager::PlayBGM(const std::wstring& filename, float logicalPercent) {
     const std::wstring fullPath = exeDir + L"\\" + filename;
+    if (!std::filesystem::exists(fullPath)) {
+        return;
+    }
 
     mciSendStringW(L"stop bgm", nullptr, 0, nullptr);
     mciSendStringW(L"close bgm", nullptr, 0, nullptr);
@@ -124,6 +128,9 @@ void AudioManager::SetVolumes(int master, int bgm, int sfx) {
 
 void AudioManager::PlayEffect(const std::wstring& filename, const std::wstring& alias, bool loop) {
     const std::wstring fullPath = exeDir + L"\\" + filename;
+    if (!std::filesystem::exists(fullPath)) {
+        return;
+    }
 
     mciSendStringW((L"stop " + alias).c_str(), nullptr, 0, nullptr);
     mciSendStringW((L"close " + alias).c_str(), nullptr, 0, nullptr);

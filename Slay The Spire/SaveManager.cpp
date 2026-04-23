@@ -220,6 +220,130 @@ void WriteSnapshot(std::ostream& out, const NodeEntrySnapshot& snapshot) {
     }
 }
 
+void WriteBattleReward(std::ostream& out, const BattleRewardState& reward) {
+    out << "BATTLE_REWARD_ACTIVE " << static_cast<int>(reward.active) << '\n';
+    out << "BATTLE_REWARD_GOLD " << static_cast<int>(reward.goldAvailable) << ' ' << reward.goldAmount << ' ' << static_cast<int>(reward.goldClaimed) << '\n';
+    out << "BATTLE_REWARD_POTION " << static_cast<int>(reward.potionAvailable) << ' ' << static_cast<int>(reward.potionClaimed) << '\n';
+    if (reward.potionAvailable) {
+        WritePotion(out, reward.potion);
+    }
+    out << "BATTLE_REWARD_CARD " << static_cast<int>(reward.cardRewardAvailable) << ' ' << static_cast<int>(reward.cardRewardClaimed) << ' ' << static_cast<int>(reward.cardSelectionOpen) << '\n';
+    out << "BATTLE_REWARD_TITLE " << std::quoted(reward.title) << '\n';
+    out << "BATTLE_REWARD_MESSAGE " << std::quoted(reward.message) << '\n';
+    out << "BATTLE_REWARD_CARD_COUNT " << reward.cardChoices.size() << '\n';
+    for (const CardData& card : reward.cardChoices) {
+        WriteCard(out, card);
+    }
+}
+
+bool ReadBattleReward(std::istream& in, BattleRewardState& reward) {
+    std::string tag;
+    int flagA = 0;
+    int flagB = 0;
+    int flagC = 0;
+
+    if (!(in >> tag >> flagA) || tag != "BATTLE_REWARD_ACTIVE") {
+        return false;
+    }
+    reward.active = (flagA != 0);
+
+    if (!(in >> tag >> flagA >> reward.goldAmount >> flagB) || tag != "BATTLE_REWARD_GOLD") {
+        return false;
+    }
+    reward.goldAvailable = (flagA != 0);
+    reward.goldClaimed = (flagB != 0);
+
+    if (!(in >> tag >> flagA >> flagB) || tag != "BATTLE_REWARD_POTION") {
+        return false;
+    }
+    reward.potionAvailable = (flagA != 0);
+    reward.potionClaimed = (flagB != 0);
+    if (reward.potionAvailable && !ReadPotion(in, reward.potion)) {
+        return false;
+    }
+
+    if (!(in >> tag >> flagA >> flagB >> flagC) || tag != "BATTLE_REWARD_CARD") {
+        return false;
+    }
+    reward.cardRewardAvailable = (flagA != 0);
+    reward.cardRewardClaimed = (flagB != 0);
+    reward.cardSelectionOpen = (flagC != 0);
+
+    if (!(in >> tag >> std::quoted(reward.title)) || tag != "BATTLE_REWARD_TITLE") {
+        return false;
+    }
+    if (!(in >> tag >> std::quoted(reward.message)) || tag != "BATTLE_REWARD_MESSAGE") {
+        return false;
+    }
+
+    size_t count = 0;
+    if (!(in >> tag >> count) || tag != "BATTLE_REWARD_CARD_COUNT") {
+        return false;
+    }
+    reward.cardChoices.clear();
+    for (size_t index = 0; index < count; ++index) {
+        CardData card = {};
+        if (!ReadCard(in, card)) {
+            return false;
+        }
+        reward.cardChoices.push_back(card);
+    }
+
+    return !in.fail();
+}
+
+void WriteBattleRoom(std::ostream& out, const BattleRoomState& battleRoom) {
+    out << "BATTLE_ROOM_INITIALIZED " << static_cast<int>(battleRoom.initialized) << '\n';
+    if (!battleRoom.initialized) {
+        return;
+    }
+
+    out << "BATTLE_ENEMY "
+        << battleRoom.enemy.id << ' '
+        << std::quoted(battleRoom.enemy.name) << ' '
+        << battleRoom.enemy.currentHp << ' '
+        << battleRoom.enemy.maxHp << ' '
+        << battleRoom.enemy.block << ' '
+        << battleRoom.enemy.strength << ' '
+        << battleRoom.enemy.vulnerable << ' '
+        << battleRoom.enemy.weak << ' '
+        << battleRoom.enemy.poison << '\n';
+    out << "BATTLE_INTRO " << std::quoted(battleRoom.introText) << '\n';
+    WriteBattleReward(out, battleRoom.rewards);
+}
+
+bool ReadBattleRoom(std::istream& in, BattleRoomState& battleRoom) {
+    std::string tag;
+    int initialized = 0;
+    if (!(in >> tag >> initialized) || tag != "BATTLE_ROOM_INITIALIZED") {
+        return false;
+    }
+    battleRoom.initialized = (initialized != 0);
+    if (!battleRoom.initialized) {
+        return true;
+    }
+
+    if (!(in >> tag) || tag != "BATTLE_ENEMY") {
+        return false;
+    }
+
+    in >> battleRoom.enemy.id
+        >> std::quoted(battleRoom.enemy.name)
+        >> battleRoom.enemy.currentHp
+        >> battleRoom.enemy.maxHp
+        >> battleRoom.enemy.block
+        >> battleRoom.enemy.strength
+        >> battleRoom.enemy.vulnerable
+        >> battleRoom.enemy.weak
+        >> battleRoom.enemy.poison;
+
+    if (!(in >> tag >> std::quoted(battleRoom.introText)) || tag != "BATTLE_INTRO") {
+        return false;
+    }
+
+    return ReadBattleReward(in, battleRoom.rewards);
+}
+
 void WriteRecord(std::ostream& out, const RunRecordData& record) {
     out << "RECORD "
         << static_cast<int>(record.won) << ' '
@@ -442,6 +566,8 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
         else if (tag == "PLAYER_NAME") in >> std::quoted(run.playerName);
         else if (tag == "SELECTED_PACK") in >> std::quoted(run.selectedCardPackTitle);
         else if (tag == "FAILURE_REASON") in >> std::quoted(run.failureReasonText);
+        else if (tag == "ROOM_SUMMARY_TITLE") in >> std::quoted(run.currentRoomSummaryTitle);
+        else if (tag == "ROOM_SUMMARY_TEXT") in >> std::quoted(run.currentRoomSummaryText);
         else if (tag == "PLAYER") {
             in >> run.player.id
                 >> std::quoted(run.player.name)
@@ -556,6 +682,36 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
                 run.nodeEntrySnapshot.visitedNodeTypes.push_back(static_cast<RunNodeType>(value));
             }
         }
+        else if (tag == "BATTLE_ROOM_INITIALIZED") {
+            int initialized = 0;
+            in >> initialized;
+            run.battleRoom.initialized = (initialized != 0);
+            if (run.battleRoom.initialized) {
+                in >> tag;
+                if (tag != "BATTLE_ENEMY") {
+                    return false;
+                }
+
+                in >> run.battleRoom.enemy.id
+                    >> std::quoted(run.battleRoom.enemy.name)
+                    >> run.battleRoom.enemy.currentHp
+                    >> run.battleRoom.enemy.maxHp
+                    >> run.battleRoom.enemy.block
+                    >> run.battleRoom.enemy.strength
+                    >> run.battleRoom.enemy.vulnerable
+                    >> run.battleRoom.enemy.weak
+                    >> run.battleRoom.enemy.poison;
+
+                in >> tag >> std::quoted(run.battleRoom.introText);
+                if (tag != "BATTLE_INTRO") {
+                    return false;
+                }
+
+                if (!ReadBattleReward(in, run.battleRoom.rewards)) {
+                    return false;
+                }
+            }
+        }
         else if (tag == "DECK_COUNT") {
             size_t count = 0;
             in >> count;
@@ -643,6 +799,8 @@ bool SaveManager::SaveContinueRun(const RunStateData& run) {
     out << "PLAYER_NAME " << std::quoted(run.playerName) << '\n';
     out << "SELECTED_PACK " << std::quoted(run.selectedCardPackTitle) << '\n';
     out << "FAILURE_REASON " << std::quoted(run.failureReasonText) << '\n';
+    out << "ROOM_SUMMARY_TITLE " << std::quoted(run.currentRoomSummaryTitle) << '\n';
+    out << "ROOM_SUMMARY_TEXT " << std::quoted(run.currentRoomSummaryText) << '\n';
     out << "PLAYER " << run.player.id << ' ' << std::quoted(run.player.name) << ' ' << run.player.currentHp << ' ' << run.player.maxHp << ' '
         << run.player.block << ' ' << run.player.strength << ' ' << run.player.vulnerable << ' ' << run.player.weak << ' ' << run.player.poison << '\n';
     out << "SCENE " << static_cast<int>(run.scene) << '\n';
@@ -653,6 +811,7 @@ bool SaveManager::SaveContinueRun(const RunStateData& run) {
     out << "ROOM_RESOLVED " << static_cast<int>(run.roomResolved) << '\n';
     out << "PENDING_EXIT " << static_cast<int>(run.pendingExitToTitle) << '\n';
     WriteSnapshot(out, run.nodeEntrySnapshot);
+    WriteBattleRoom(out, run.battleRoom);
 
     out << "DECK_COUNT " << run.deck.size() << '\n';
     for (const CardData& card : run.deck) {

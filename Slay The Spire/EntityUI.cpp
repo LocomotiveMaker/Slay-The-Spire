@@ -7,9 +7,6 @@
 EntityUI::EntityUI(int x, int y, EntityData* entityData, bool isPlayer)
     : UIElement(x, y, 24, 10), data(entityData), isPlayer(isPlayer), isTargeted(false), hitAnimationTimer(0)
 {
-    WORD hpColor = isPlayer ? COLOR_GREEN : COLOR_RED;
-    healthBar = new ProgressBarUI(x, y + height - 1, width, &(data->currentHp), &(data->maxHp), u8"체력", COLOR_WHITE, hpColor);
-
     if (isPlayer) {
         asciiArt = {
             "       _      ",
@@ -20,14 +17,41 @@ EntityUI::EntityUI(int x, int y, EntityData* entityData, bool isPlayer)
         };
     }
     else {
-        asciiArt = {
-            "    /\\_/\\    ",
-            "   ( o.o )   ",
-            "    > ^ <    ",
-            "   /  _  \\   ",
-            "  / /| |\\ \\  "
-        };
+        if (data != nullptr && data->id >= 9200) {
+            width = 28;
+            asciiArt = {
+                "     /\\____/\\\\     ",
+                "   _/  o  o  \\\\_   ",
+                "  /__   --   __\\\\  ",
+                "     | |  | |      ",
+                "   __| |__| |__    ",
+                "  /___/    \\___\\\\  "
+            };
+        }
+        else if (data != nullptr && data->id >= 9100) {
+            width = 26;
+            asciiArt = {
+                "     /\\__/\\\\      ",
+                "    / o  o \\\\     ",
+                "   (   --   )     ",
+                "    \\\\_==_//      ",
+                "   __/  \\__       "
+            };
+        }
+        else {
+            asciiArt = {
+                "    /\\_/\\\\    ",
+                "   ( o.o )   ",
+                "    > ^ <    ",
+                "   /  _  \\\\   ",
+                "  / /| |\\\\ \\\\  "
+            };
+        }
     }
+
+    height = static_cast<int>(asciiArt.size()) + 5;
+    WORD hpColor = isPlayer ? COLOR_GREEN : COLOR_RED;
+    healthBar = new ProgressBarUI(x, y + height - 1, width, &(data->currentHp), &(data->maxHp), u8"체력", COLOR_WHITE, hpColor);
 }
 
 EntityUI::~EntityUI() {

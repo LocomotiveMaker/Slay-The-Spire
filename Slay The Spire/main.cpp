@@ -7,17 +7,22 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <memory>
 #include <random>
 #include <string>
 #include <vector>
 
 #include "AudioManager.h"
 #include "ButtonUI.h"
+#include "CardUI.h"
+#include "CombatSystem.h"
+#include "EntityUI.h"
 #include "InputManager.h"
 #include "MapRenderer.h"
 #include "RunState.h"
 #include "SaveManager.h"
 #include "ScreenManager.h"
+#include "TargetingArrow.h"
 #include "TextLayout.h"
 #include "TooltipUI.h"
 
@@ -261,6 +266,132 @@ bool HasPotionSlot(const RunStateData& run) {
     return run.potions.size() < 3;
 }
 
+bool IsBattleNodeType(RunNodeType type) {
+    return type == RunNodeType::Battle || type == RunNodeType::Elite || type == RunNodeType::Boss;
+}
+
+CardData MakeRewardCard(
+    int id,
+    const string& name,
+    int cost,
+    const string& description,
+    CardType type,
+    CardTargetType targetType,
+    CardEffectType effectType,
+    CardDiscardEffectType discardEffectType,
+    int primaryValue,
+    int secondaryValue) {
+    CardData card = {};
+    card.id = id;
+    card.name = name;
+    card.cost = cost;
+    card.description = description;
+    card.type = type;
+    card.targetType = targetType;
+    card.effectType = effectType;
+    card.discardEffectType = discardEffectType;
+    card.primaryValue = primaryValue;
+    card.secondaryValue = secondaryValue;
+    return card;
+}
+
+PotionData MakeRewardPotion(int id, const string& name, const string& description, bool battleOnly) {
+    PotionData potion = {};
+    potion.id = id;
+    potion.name = name;
+    potion.description = description;
+    potion.battleOnly = battleOnly;
+    return potion;
+}
+
+vector<CardData> BuildBattleRewardCardPool() {
+    return {
+        MakeRewardCard(8000, u8"강타+", 1, u8"적에게 8 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 8, 0),
+        MakeRewardCard(8001, u8"수비+", 1, u8"방어도 7을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 7, 0),
+        MakeRewardCard(8002, u8"재정비", 0, u8"버릴 때 카드를 1장 뽑고 에너지 1을 얻습니다.", CardType::Skill, CardTargetType::None, CardEffectType::None, CardDiscardEffectType::DrawCardsGainEnergy, 1, 1),
+        MakeRewardCard(8003, u8"약점 노출", 2, u8"적에게 취약 2를 부여합니다.", CardType::Skill, CardTargetType::Enemy, CardEffectType::ApplyVulnerable, CardDiscardEffectType::None, 2, 0),
+        MakeRewardCard(8004, u8"대검", 2, u8"적에게 12 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 12, 0),
+        MakeRewardCard(8005, u8"굳건한 자세", 2, u8"방어도 10을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 10, 0),
+        MakeRewardCard(8006, u8"폼멜 타격", 1, u8"적에게 9 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 9, 0),
+        MakeRewardCard(8007, u8"압박", 1, u8"적에게 7 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 7, 0)
+    };
+}
+
+vector<PotionData> BuildBattleRewardPotionPool() {
+    return {
+        MakeRewardPotion(8100, u8"회복 포션", u8"체력을 소량 회복합니다.", false),
+        MakeRewardPotion(8101, u8"에너지 포션", u8"즉시 에너지를 회복합니다.", false),
+        MakeRewardPotion(8102, u8"연막 포션", u8"보스전이 아닌 전투에서 도주합니다.", true)
+    };
+}
+
+BattleRewardState BuildBattleRewardState(const RunStateData& run, RunNodeType roomType, RunNodeResultType result) {
+    BattleRewardState reward = {};
+    reward.active = true;
+
+    if (result == RunNodeResultType::Escape) {
+        reward.title = u8"전리품";
+        reward.message = u8"도망쳤다...";
+        return reward;
+    }
+
+    std::mt19937 rng(run.seed ^ static_cast<uint32_t>((run.currentNodeId + 1) * 2654435761u) ^ 0x9E3779B9u);
+    const vector<CardData> cardPool = BuildBattleRewardCardPool();
+    const vector<PotionData> potionPool = BuildBattleRewardPotionPool();
+
+    reward.title = u8"전리품";
+    reward.message = roomType == RunNodeType::Elite
+        ? u8"엘리트 전투를 정리했습니다. 남은 보상을 챙기세요."
+        : u8"전투가 끝났습니다. 남은 보상을 챙기세요.";
+
+    std::uniform_int_distribution<int> goldDist(roomType == RunNodeType::Elite ? 35 : 20, roomType == RunNodeType::Elite ? 45 : 30);
+    reward.goldAvailable = true;
+    reward.goldAmount = goldDist(rng);
+
+    if (HasPotionSlot(run)) {
+        std::uniform_int_distribution<int> potionRoll(1, 100);
+        const int potionChance = roomType == RunNodeType::Elite ? 50 : 30;
+        if (potionRoll(rng) <= potionChance) {
+            reward.potionAvailable = true;
+            reward.potion = potionPool[static_cast<size_t>(rng() % potionPool.size())];
+        }
+    }
+
+    reward.cardRewardAvailable = (roomType != RunNodeType::Boss);
+    if (reward.cardRewardAvailable) {
+        vector<int> indices;
+        indices.reserve(cardPool.size());
+        for (int index = 0; index < static_cast<int>(cardPool.size()); ++index) {
+            indices.push_back(index);
+        }
+        shuffle(indices.begin(), indices.end(), rng);
+        for (int pickIndex = 0; pickIndex < 3 && pickIndex < static_cast<int>(indices.size()); ++pickIndex) {
+            reward.cardChoices.push_back(cardPool[static_cast<size_t>(indices[static_cast<size_t>(pickIndex)])]);
+        }
+    }
+
+    return reward;
+}
+
+bool HasBattleRewardItemsRemaining(const BattleRewardState& reward) {
+    return (reward.goldAvailable && !reward.goldClaimed) ||
+        (reward.potionAvailable && !reward.potionClaimed) ||
+        (reward.cardRewardAvailable && !reward.cardRewardClaimed);
+}
+
+string BuildPotionActionText(const PotionData& potion) {
+    if (potion.name == u8"회복 포션") {
+        return u8"회복 +12";
+    }
+    if (potion.name == u8"에너지 포션") {
+        return u8"에너지 +2";
+    }
+    if (potion.name == u8"연막 포션") {
+        return u8"도주";
+    }
+    return potion.description;
+}
+
 void RenderAsciiArtLines(ScreenManager& screen, const Rect& rect, const vector<string>& lines, WORD color) {
     if (lines.empty()) {
         RenderWrappedText(screen, rect.x + 2, rect.y + 2, rect.width - 4, u8"<그림>", color);
@@ -308,7 +439,7 @@ int main() {
     vector<CardPackOption> starterPacks = BuildStarterCardPacks();
 
     audio.SetVolumes(settings.masterVolume, settings.bgmVolume, settings.sfxVolume);
-    audio.PlayBGM(L"Exordium.wav", 100.0f);
+    audio.PlayBGM(L"Slay the Spire.wav", 100.0f);
 
     AppState appState = AppState::Title;
     TitleOverlayType titleOverlay = TitleOverlayType::None;
@@ -325,13 +456,27 @@ int main() {
     int activeSliderId = -1;
     float runPlayAccumulatorSec = 0.0f;
     bool settingsDirty = false;
-
+    std::unique_ptr<CombatSystem> combatSystem;
+    std::unique_ptr<EntityUI> playerEntityUi;
+    std::unique_ptr<EntityUI> enemyEntityUi;
+    TargetingArrow targetingArrow;
+    int activeCombatRoomKey = -9999;
+    int draggedHandIndex = -1;
+    std::wstring lastQueuedBgmTrack;
+    int lastQueuedBgmPercent = -1;
+    bool wasF1Pressed = false;
+    bool wasF2Pressed = false;
+    bool wasF3Pressed = false;
+    bool wasF4Pressed = false;
+    bool wasF5Pressed = false;
     bool wasF6Pressed = false;
+
     bool wasF7Pressed = false;
     bool wasF8Pressed = false;
     bool wasF9Pressed = false;
     bool wasF10Pressed = false;
     bool wasF11Pressed = false;
+    bool wasF12Pressed = false;
 
     auto reloadRecords = [&]() {
         runRecords = SaveManager::LoadRunRecords();
@@ -341,18 +486,74 @@ int main() {
         }
         };
 
+    auto resetCombatPresentation = [&]() {
+        combatSystem.reset();
+        playerEntityUi.reset();
+        enemyEntityUi.reset();
+        activeCombatRoomKey = -9999;
+        draggedHandIndex = -1;
+        targetingArrow.SetActive(false);
+        };
+
+    auto queueRoomBgm = [&]() {
+        std::wstring track = L"Slay the Spire.wav";
+        int targetPercent = 100;
+        float fadeOutSec = 0.2f;
+        float fadeInSec = 0.35f;
+
+        if (appState != AppState::Run) {
+            if (lastQueuedBgmTrack != track || lastQueuedBgmPercent != targetPercent) {
+                audio.QueueBGMFade(track, static_cast<float>(targetPercent), fadeOutSec, 0.45f);
+                lastQueuedBgmTrack = track;
+                lastQueuedBgmPercent = targetPercent;
+            }
+            return;
+        }
+
+        if (run.scene == RunSceneType::CardPackSelect || run.currentNodeId < 0 || run.overlay == RunOverlayType::Map || run.overlay == RunOverlayType::Deck || run.overlay == RunOverlayType::Settings || run.overlay == RunOverlayType::Confirm) {
+            track = L"Exordium.wav";
+            targetPercent = 50;
+        }
+        else if (run.overlay == RunOverlayType::Ending) {
+            track = (run.currentRoomType == RunNodeType::Boss && run.won) ? L"The Guardian Emerges.wav" : L"Exordium.wav";
+            targetPercent = 40;
+        }
+        else if (!run.roomResolved && run.currentRoomType == RunNodeType::Boss) {
+            track = L"The Guardian Emerges.wav";
+            targetPercent = 100;
+            fadeOutSec = 0.25f;
+            fadeInSec = 0.4f;
+        }
+        else if (!run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
+            track = L"Exordium.wav";
+            targetPercent = 100;
+            fadeInSec = 0.3f;
+        }
+        else {
+            track = L"Exordium.wav";
+            targetPercent = 50;
+        }
+
+        if (lastQueuedBgmTrack != track || lastQueuedBgmPercent != targetPercent) {
+            audio.QueueBGMFade(track, static_cast<float>(targetPercent), fadeOutSec, fadeInSec);
+            lastQueuedBgmTrack = track;
+            lastQueuedBgmPercent = targetPercent;
+        }
+        };
+
     auto startNewRun = [&]() {
         CreateNewRun(run, BuildSeed(settings), screen.GetWidth(), screen.GetHeight());
         SaveManager::SaveContinueRun(run);
         hasContinueRun = true;
         mapRenderer.SetNodes(&run.nodes);
         mapRenderer.FocusToFloor(1);
+        resetCombatPresentation();
         tooltip.SetVisible(false);
         appState = AppState::Run;
         titleOverlay = TitleOverlayType::None;
         deckScroll = 0;
         runPlayAccumulatorSec = 0.0f;
-        audio.QueueBGMFade(L"Exordium.wav", 50.0f, 0.25f, 0.45f);
+        queueRoomBgm();
         };
 
     auto loadContinueRun = [&]() {
@@ -367,12 +568,13 @@ int main() {
         if (run.currentFloor > 0) {
             mapRenderer.FocusToFloor(run.currentFloor);
         }
+        resetCombatPresentation();
         tooltip.SetVisible(false);
         appState = AppState::Run;
         titleOverlay = TitleOverlayType::None;
         deckScroll = 0;
         runPlayAccumulatorSec = 0.0f;
-        audio.QueueBGMFade(L"Exordium.wav", 50.0f, 0.25f, 0.45f);
+        queueRoomBgm();
         return true;
         };
 
@@ -382,9 +584,12 @@ int main() {
         titleOverlay = showRecordsAfterEnding ? TitleOverlayType::Records : TitleOverlayType::None;
         showRecordsAfterEnding = false;
         mapRenderer.SetNodes(nullptr);
+        resetCombatPresentation();
         tooltip.SetVisible(false);
         hasContinueRun = SaveManager::HasContinueRun();
-        audio.QueueBGMFade(L"Exordium.wav", 100.0f, 0.25f, 0.4f);
+        audio.QueueBGMFade(L"Slay the Spire.wav", 100.0f, 0.2f, 0.45f);
+        lastQueuedBgmTrack = L"Slay the Spire.wav";
+        lastQueuedBgmPercent = 100;
         };
 
     auto finishRunToEnding = [&](bool won, const string& failureReasonText) {
@@ -407,11 +612,13 @@ int main() {
         SaveManager::DeleteContinueRun();
         hasContinueRun = false;
         showRecordsAfterEnding = true;
+        resetCombatPresentation();
         tooltip.SetVisible(false);
         activeSliderId = -1;
         run.pendingConfirm = ConfirmActionType::None;
         run.overlay = RunOverlayType::Ending;
         appState = AppState::Run;
+        audio.FadeCurrentBGMTo(35.0f, 0.25f);
         };
 
     auto abandonContinueRunFromTitle = [&]() {
@@ -479,12 +686,18 @@ int main() {
 
         const bool pressedEsc = input.IsEscPressedDown();
         const bool pressedMapHotkey = input.IsMapHotkeyPressedDown();
+        const bool pressedF1 = ConsumeKeyPress(VK_F1, wasF1Pressed);
+        const bool pressedF2 = ConsumeKeyPress(VK_F2, wasF2Pressed);
+        const bool pressedF3 = ConsumeKeyPress(VK_F3, wasF3Pressed);
+        const bool pressedF4 = ConsumeKeyPress(VK_F4, wasF4Pressed);
+        const bool pressedF5 = ConsumeKeyPress(VK_F5, wasF5Pressed);
         const bool pressedF6 = ConsumeKeyPress(VK_F6, wasF6Pressed);
         const bool pressedF7 = ConsumeKeyPress(VK_F7, wasF7Pressed);
         const bool pressedF8 = ConsumeKeyPress(VK_F8, wasF8Pressed);
         const bool pressedF9 = ConsumeKeyPress(VK_F9, wasF9Pressed);
         const bool pressedF10 = ConsumeKeyPress(VK_F10, wasF10Pressed);
         const bool pressedF11 = ConsumeKeyPress(VK_F11, wasF11Pressed);
+        const bool pressedF12 = ConsumeKeyPress(VK_F12, wasF12Pressed);
 
         if (appState == AppState::Run && settings.debugMode && run.overlay == RunOverlayType::None) {
             const auto openDebugRoom = [&](RunNodeType type) {
@@ -495,14 +708,39 @@ int main() {
                 run.scene = RunSceneType::Room;
                 ResetRoomRuntimeState(run);
                 PrepareCurrentRoomState(run);
+                resetCombatPresentation();
+                queueRoomBgm();
                 };
 
-            if (pressedF6) openDebugRoom(RunNodeType::Shop);
-            if (pressedF7) openDebugRoom(RunNodeType::Rest);
-            if (pressedF8) openDebugRoom(RunNodeType::Treasure);
-            if (pressedF9) openDebugRoom(RunNodeType::Battle);
-            if (pressedF10) openDebugRoom(RunNodeType::Elite);
-            if (pressedF11) openDebugRoom(RunNodeType::Boss);
+            if (pressedF1) {
+                run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + 10);
+            }
+            if (pressedF2) {
+                run.player.currentHp = (std::max)(1, run.player.currentHp - 10);
+            }
+            if (pressedF3) {
+                run.gold += 100;
+            }
+            if (pressedF4 && HasPotionSlot(run)) {
+                const vector<PotionData> debugPotions = BuildBattleRewardPotionPool();
+                run.potions.push_back(debugPotions[static_cast<size_t>(run.potions.size() % debugPotions.size())]);
+            }
+            if (pressedF5 && combatSystem && !run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
+                run.battleRoom.enemy.currentHp = 0;
+            }
+            if (pressedF6 && combatSystem && !run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
+                run.player.currentHp = 0;
+            }
+            if (pressedF7) openDebugRoom(RunNodeType::Shop);
+            if (pressedF8) openDebugRoom(RunNodeType::Rest);
+            if (pressedF9) openDebugRoom(RunNodeType::Treasure);
+            if (pressedF10) openDebugRoom(RunNodeType::Battle);
+            if (pressedF11) openDebugRoom(RunNodeType::Elite);
+            if (pressedF12) openDebugRoom(RunNodeType::Boss);
+        }
+
+        if (appState == AppState::Run) {
+            queueRoomBgm();
         }
 
         screen.Clear();
@@ -931,7 +1169,7 @@ int main() {
                     run.scene = RunSceneType::Room;
                     run.overlay = RunOverlayType::Map;
                     SaveManager::SaveContinueRun(run);
-                    audio.FadeCurrentBGMTo(50.0f, 0.4f);
+                    queueRoomBgm();
                 }
             }
             else {
@@ -941,12 +1179,14 @@ int main() {
                 string roomTitle;
                 string roomBody;
                 vector<string> artLines;
+                bool showResolvedSummaryOnly = false;
 
                 auto queueMapReturn = [&]() {
                     run.overlay = RunOverlayType::Map;
                     tooltip.SetVisible(false);
                     mapRenderer.FocusToFloor(run.currentFloor > 0 ? run.currentFloor : 1);
                     SaveManager::SaveContinueRun(run);
+                    queueRoomBgm();
                     };
 
                 if (run.currentNodeId < 0) {
@@ -955,7 +1195,9 @@ int main() {
                     artLines = { u8"<지도>", u8"연결된", u8"노드 클릭" };
                 }
                 else {
-                    PrepareCurrentRoomState(run);
+                    if (!run.roomResolved) {
+                        PrepareCurrentRoomState(run);
+                    }
                     roomTitle = RunNodeTypeToDisplayName(run.currentRoomType);
                     roomBody = RunNodeTypeToDescription(run.currentRoomType);
 
@@ -963,7 +1205,9 @@ int main() {
                     case RunNodeType::Battle:
                     case RunNodeType::Elite:
                     case RunNodeType::Boss:
-                        roomBody += u8"\n현재 단계에서는 임시 결과 버튼으로 흐름만 검증합니다.";
+                        roomBody = run.roomResolved && !run.currentRoomSummaryText.empty()
+                            ? run.currentRoomSummaryText
+                            : run.battleRoom.introText;
                         artLines = { u8"   /\\_/\\\\", u8"  ( 전투 )", u8"   >  <" };
                         break;
                     case RunNodeType::Shop:
@@ -982,6 +1226,25 @@ int main() {
                         roomBody = run.eventRoom.description;
                         artLines = run.eventRoom.artLines;
                         break;
+                    }
+
+                    if (run.roomResolved && !IsBattleNodeType(run.currentRoomType)) {
+                        const bool runtimeMissing =
+                            (run.currentRoomType == RunNodeType::Shop && !run.shopRoom.initialized) ||
+                            (run.currentRoomType == RunNodeType::Rest && !run.restRoom.initialized) ||
+                            (run.currentRoomType == RunNodeType::Treasure && !run.treasureRoom.initialized) ||
+                            (run.currentRoomType == RunNodeType::Event && !run.eventRoom.initialized);
+
+                        if (runtimeMissing) {
+                            showResolvedSummaryOnly = true;
+                            if (!run.currentRoomSummaryTitle.empty()) {
+                                roomTitle = run.currentRoomSummaryTitle;
+                            }
+                            if (!run.currentRoomSummaryText.empty()) {
+                                roomBody = run.currentRoomSummaryText;
+                            }
+                            artLines = { u8"<정리됨>" };
+                        }
                     }
                 }
 
@@ -1007,44 +1270,444 @@ int main() {
                         mapRenderer.FocusToFloor(1);
                     }
                 }
+                else if (showResolvedSummaryOnly) {
+                    ButtonUI btnContinue(roomPanel.x + 28, roomPanel.y + roomPanel.height - 5, 18, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
+                    if (run.overlay == RunOverlayType::None) {
+                        btnContinue.Update(input);
+                    }
+                    btnContinue.Render(screen);
+                    if (btnContinue.IsClicked()) {
+                        queueMapReturn();
+                    }
+                }
                 else {
                     switch (run.currentRoomType) {
                     case RunNodeType::Battle:
                     case RunNodeType::Elite:
-                    {
-                        ButtonUI btnWin(roomPanel.x + 6, roomPanel.y + roomPanel.height - 6, 18, 3, u8"임시 승리", COLOR_WHITE, COLOR_YELLOW);
-                        ButtonUI btnLose(roomPanel.x + 28, roomPanel.y + roomPanel.height - 6, 18, 3, u8"임시 패배", COLOR_WHITE, COLOR_YELLOW);
-                        if (run.overlay == RunOverlayType::None) {
-                            btnWin.Update(input);
-                            btnLose.Update(input);
-                        }
-                        btnWin.Render(screen);
-                        btnLose.Render(screen);
-                        if (btnWin.IsClicked()) {
-                            ResolveCurrentNode(run, RunNodeResultType::Victory);
-                            queueMapReturn();
-                        }
-                        if (btnLose.IsClicked()) {
-                            finishRunToEnding(false, to_string(run.currentFloor) + u8"층 전투에서 쓰러졌습니다.");
-                        }
-                        break;
-                    }
                     case RunNodeType::Boss:
                     {
-                        ButtonUI btnWin(roomPanel.x + 6, roomPanel.y + roomPanel.height - 6, 18, 3, u8"임시 승리", COLOR_WHITE, COLOR_YELLOW);
-                        ButtonUI btnLose(roomPanel.x + 28, roomPanel.y + roomPanel.height - 6, 18, 3, u8"임시 패배", COLOR_WHITE, COLOR_YELLOW);
-                        if (run.overlay == RunOverlayType::None) {
-                            btnWin.Update(input);
-                            btnLose.Update(input);
-                        }
-                        btnWin.Render(screen);
-                        btnLose.Render(screen);
-                        if (btnWin.IsClicked()) {
+                        auto applyBurningBlood = [&]() {
+                            for (const RelicData& relic : run.relics) {
+                                if (relic.name == u8"불타는 피") {
+                                    run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + 6);
+                                    break;
+                                }
+                            }
+                        };
+
+                        auto resolveBattleVictory = [&]() {
+                            applyBurningBlood();
+                            audio.PlayEffect(L"battle_victory.wav", L"sfx_victory");
+
+                            if (run.currentRoomType == RunNodeType::Boss) {
+                                run.currentRoomSummaryTitle = u8"승리";
+                                run.currentRoomSummaryText = u8"보스를 쓰러뜨렸습니다.";
+                                ResolveCurrentNode(run, RunNodeResultType::Victory);
+                                resetCombatPresentation();
+                                finishRunToEnding(true, "");
+                                return;
+                            }
+
+                            run.currentRoomSummaryTitle = u8"전리품";
+                            run.currentRoomSummaryText = u8"전투가 끝났습니다. 남은 보상을 챙기세요.";
+                            run.battleRoom.rewards = BuildBattleRewardState(run, run.currentRoomType, RunNodeResultType::Victory);
                             ResolveCurrentNode(run, RunNodeResultType::Victory);
-                            finishRunToEnding(true, "");
+                            resetCombatPresentation();
+                            SaveManager::SaveContinueRun(run);
+                            queueRoomBgm();
+                        };
+
+                        auto resolveBattleEscape = [&]() {
+                            run.currentRoomSummaryTitle = u8"전리품";
+                            run.currentRoomSummaryText = u8"도망쳤다...";
+                            run.battleRoom.rewards = BuildBattleRewardState(run, run.currentRoomType, RunNodeResultType::Escape);
+                            ResolveCurrentNode(run, RunNodeResultType::Escape);
+                            resetCombatPresentation();
+                            SaveManager::SaveContinueRun(run);
+                            queueRoomBgm();
+                        };
+
+                        auto resolveBattleDefeat = [&]() {
+                            if (RunNodeState* currentNode = FindNodeById(run, run.currentNodeId)) {
+                                currentNode->completed = true;
+                                currentNode->result = RunNodeResultType::Defeat;
+                                currentNode->isCurrent = false;
+                            }
+                            run.currentRoomResult = RunNodeResultType::Defeat;
+                            run.roomResolved = true;
+                            resetCombatPresentation();
+                            finishRunToEnding(false, to_string(run.currentFloor) + (run.currentRoomType == RunNodeType::Boss ? string(u8"층 보스전에서 쓰러졌습니다.") : string(u8"층 전투에서 쓰러졌습니다.")));
+                        };
+
+                        if (!run.roomResolved) {
+                            const int roomKey = (run.currentNodeId >= 0) ? run.currentNodeId : (-100 - static_cast<int>(run.currentRoomType));
+                            if (!combatSystem || activeCombatRoomKey != roomKey) {
+                                resetCombatPresentation();
+                                if (!run.battleRoom.initialized) {
+                                    PrepareCurrentRoomState(run);
+                                }
+
+                                combatSystem = std::make_unique<CombatSystem>(&run.player, &run.battleRoom.enemy);
+                                CombatConfig& config = combatSystem->GetMutableConfig();
+                                if (run.currentRoomType == RunNodeType::Elite) {
+                                    config.baseEnemyIntentIntervalSec = 5.0f;
+                                    config.minEnemyIntentIntervalSec = 1.8f;
+                                    config.speedGainPerEnemyAction = 0.06f;
+                                }
+                                else if (run.currentRoomType == RunNodeType::Boss) {
+                                    config.baseEnemyIntentIntervalSec = 4.7f;
+                                    config.minEnemyIntentIntervalSec = 1.6f;
+                                    config.speedGainPerEnemyAction = 0.07f;
+                                }
+                                combatSystem->StartBattle(run.deck);
+
+                                playerEntityUi = std::make_unique<EntityUI>(roomPanel.x + 28, roomPanel.y + 20, &run.player, true);
+                                enemyEntityUi = std::make_unique<EntityUI>(roomPanel.x + roomPanel.width - 50, roomPanel.y + 18, &run.battleRoom.enemy, false);
+                                activeCombatRoomKey = roomKey;
+                                queueRoomBgm();
+                            }
+
+                            const Rect drawPileRect = { roomPanel.x + 4, roomPanel.y + roomPanel.height - 8, 10, 4 };
+                            const Rect discardPileRect = { roomPanel.x + roomPanel.width - 14, roomPanel.y + roomPanel.height - 8, 10, 4 };
+                            const Rect energyRect = { roomPanel.x + 16, roomPanel.y + roomPanel.height - 8, 16, 4 };
+                            const Rect intentRect = { roomPanel.x + roomPanel.width - 36, roomPanel.y + 8, 22, 5 };
+
+                            vector<ButtonUI> potionButtons;
+                            for (size_t potionIndex = 0; potionIndex < run.potions.size(); ++potionIndex) {
+                                potionButtons.emplace_back(
+                                    roomPanel.x + 28 + static_cast<int>(potionIndex) * 18,
+                                    roomPanel.y + roomPanel.height - 8,
+                                    16,
+                                    3,
+                                    run.potions[potionIndex].name,
+                                    COLOR_WHITE,
+                                    COLOR_YELLOW);
+                            }
+
+                            const auto& hand = combatSystem->GetHand();
+                            const int cardCount = static_cast<int>(hand.size());
+                            const int overlapChars = cardCount >= 5 ? 2 : (cardCount >= 2 ? 1 : 0);
+                            const int cardSpacing = 28 - overlapChars;
+                            const int totalHandWidth = cardCount > 0 ? (28 + (cardCount - 1) * cardSpacing) : 0;
+                            const int handStartX = roomPanel.x + (roomPanel.width - totalHandWidth) / 2;
+                            const int handBaseY = roomPanel.y + roomPanel.height - 18;
+
+                            vector<CardUI> handCards;
+                            handCards.reserve(hand.size());
+                            for (size_t cardIndex = 0; cardIndex < hand.size(); ++cardIndex) {
+                                handCards.emplace_back(handStartX + static_cast<int>(cardIndex) * cardSpacing, handBaseY, const_cast<CardData*>(&hand[cardIndex]));
+                                handCards.back().SetBasePosition(handStartX + static_cast<int>(cardIndex) * cardSpacing, handBaseY);
+                                handCards.back().SetRightOcclusion(cardIndex + 1 < hand.size() ? overlapChars : 0);
+                            }
+
+                            int hoveredHandIndex = -1;
+                            for (int cardIndex = cardCount - 1; cardIndex >= 0; --cardIndex) {
+                                if (handCards[static_cast<size_t>(cardIndex)].IsPointInside(mouseX, mouseY)) {
+                                    hoveredHandIndex = cardIndex;
+                                    break;
+                                }
+                            }
+
+                            for (int cardIndex = 0; cardIndex < cardCount; ++cardIndex) {
+                                CardUI& cardUi = handCards[static_cast<size_t>(cardIndex)];
+                                const bool hovered = (draggedHandIndex < 0 && cardIndex == hoveredHandIndex);
+                                cardUi.SetHovered(hovered || cardIndex == draggedHandIndex);
+                                if (hovered || cardIndex == draggedHandIndex) {
+                                    cardUi.SetPosition(cardUi.GetX(), handBaseY - 3);
+                                }
+                            }
+
+                            if (draggedHandIndex >= cardCount) {
+                                draggedHandIndex = -1;
+                                targetingArrow.SetActive(false);
+                            }
+
+                            if (draggedHandIndex < 0 && input.IsLeftClickDown() && hoveredHandIndex >= 0 && run.overlay == RunOverlayType::None) {
+                                draggedHandIndex = hoveredHandIndex;
+                            }
+
+                            CombatDropTarget dropTarget = CombatDropTarget::None;
+                            if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
+                                const CardData& draggedCard = hand[static_cast<size_t>(draggedHandIndex)];
+                                if (discardPileRect.Contains(mouseX, mouseY)) {
+                                    dropTarget = CombatDropTarget::DiscardPile;
+                                }
+                                else if (draggedCard.targetType == CardTargetType::Enemy && enemyEntityUi && enemyEntityUi->IsPointInside(mouseX, mouseY)) {
+                                    dropTarget = CombatDropTarget::Enemy;
+                                }
+                                else if (draggedCard.targetType == CardTargetType::Self && playerEntityUi && playerEntityUi->IsPointInside(mouseX, mouseY)) {
+                                    dropTarget = CombatDropTarget::Player;
+                                }
+
+                                targetingArrow.SetActive(dropTarget != CombatDropTarget::DiscardPile);
+                                targetingArrow.SetStartPoint(handCards[static_cast<size_t>(draggedHandIndex)].GetX() + 14, handBaseY - 1);
+                                targetingArrow.SetEndPoint(mouseX, mouseY);
+                            }
+                            else {
+                                targetingArrow.SetActive(false);
+                            }
+
+                            if (playerEntityUi) {
+                                playerEntityUi->SetTargeted(dropTarget == CombatDropTarget::Player);
+                                playerEntityUi->Update(input);
+                            }
+                            if (enemyEntityUi) {
+                                enemyEntityUi->SetTargeted(dropTarget == CombatDropTarget::Enemy);
+                                enemyEntityUi->Update(input);
+                            }
+
+                            if (run.overlay == RunOverlayType::None) {
+                                for (ButtonUI& potionButton : potionButtons) {
+                                    potionButton.Update(input);
+                                }
+                            }
+
+                            bool escapeRequested = false;
+                            for (size_t potionIndex = 0; potionIndex < potionButtons.size() && potionIndex < run.potions.size(); ++potionIndex) {
+                                potionButtons[potionIndex].Render(screen);
+                                if (potionButtons[potionIndex].IsClicked()) {
+                                    const PotionData potion = run.potions[potionIndex];
+                                    if (potion.name == u8"회복 포션") {
+                                        run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + 12);
+                                        audio.PlayEffect(L"potion_use.wav", L"sfx_potion");
+                                        run.potions.erase(run.potions.begin() + static_cast<vector<PotionData>::difference_type>(potionIndex));
+                                        break;
+                                    }
+                                    if (potion.name == u8"에너지 포션") {
+                                        combatSystem->AddEnergy(2);
+                                        audio.PlayEffect(L"potion_use.wav", L"sfx_potion");
+                                        run.potions.erase(run.potions.begin() + static_cast<vector<PotionData>::difference_type>(potionIndex));
+                                        break;
+                                    }
+                                    if (potion.name == u8"연막 포션" && run.currentRoomType != RunNodeType::Boss) {
+                                        audio.PlayEffect(L"battle_escape.wav", L"sfx_escape");
+                                        run.potions.erase(run.potions.begin() + static_cast<vector<PotionData>::difference_type>(potionIndex));
+                                        escapeRequested = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (draggedHandIndex >= 0 && input.IsLeftClickUp() && run.overlay == RunOverlayType::None) {
+                                bool actionSucceeded = false;
+                                if (dropTarget == CombatDropTarget::DiscardPile) {
+                                    CombatActionResult actionResult = combatSystem->TryDiscardCard(draggedHandIndex);
+                                    actionSucceeded = actionResult.success;
+                                    if (actionResult.success) {
+                                        ++globalStats.totalCardsDiscarded;
+                                        if (enemyEntityUi && actionResult.enemyHit) {
+                                            enemyEntityUi->TriggerHitAnimation();
+                                        }
+                                        audio.PlayEffect(L"card_discard.wav", L"sfx_discard");
+                                    }
+                                }
+                                else if (dropTarget == CombatDropTarget::Enemy || dropTarget == CombatDropTarget::Player) {
+                                    CombatActionResult actionResult = combatSystem->TryUseCard(draggedHandIndex, dropTarget);
+                                    actionSucceeded = actionResult.success;
+                                    if (actionResult.success) {
+                                        ++globalStats.totalCardsUsed;
+                                        if (enemyEntityUi && actionResult.enemyHit) {
+                                            enemyEntityUi->TriggerHitAnimation();
+                                        }
+                                        if (playerEntityUi && actionResult.playerHit) {
+                                            playerEntityUi->TriggerHitAnimation();
+                                        }
+                                        audio.PlayEffect(L"card_use.wav", L"sfx_card_use");
+                                    }
+                                    else if (actionResult.message == "Not enough energy") {
+                                        audio.PlayEffect(L"energy_fail.wav", L"sfx_energy_fail");
+                                    }
+                                }
+
+                                if (!actionSucceeded && dropTarget == CombatDropTarget::DiscardPile) {
+                                    audio.PlayEffect(L"card_discard.wav", L"sfx_discard");
+                                }
+
+                                draggedHandIndex = -1;
+                                targetingArrow.SetActive(false);
+                            }
+
+                            const bool allowCombatTime = (run.overlay == RunOverlayType::None);
+                            const float combatTimeScale = allowCombatTime
+                                ? (draggedHandIndex >= 0 ? combatSystem->GetDragTimeScale() : 1.0f)
+                                : 0.0f;
+                            const CombatFrameResult frameResult = combatSystem->Update(deltaTimeSec, combatTimeScale * (settings.gameSpeedPercent / 100.0f));
+
+                            if (frameResult.enemyHit && enemyEntityUi) {
+                                enemyEntityUi->TriggerHitAnimation();
+                            }
+                            if (frameResult.playerHit && playerEntityUi) {
+                                playerEntityUi->TriggerHitAnimation();
+                            }
+                            if (frameResult.overdrawRejected) {
+                                audio.PlayEffect(L"energy_fail.wav", L"sfx_overdraw");
+                            }
+
+                            RenderFrameBox(screen, drawPileRect, COLOR_WHITE);
+                            screen.DrawString(drawPileRect.x + 2, drawPileRect.y + 1, u8"뽑기", COLOR_WHITE);
+                            screen.DrawString(drawPileRect.x + 2, drawPileRect.y + 2, string("Count ") + to_string(combatSystem->GetDrawPileCount()), COLOR_WHITE);
+
+                            RenderFrameBox(screen, discardPileRect, dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
+                            screen.DrawString(discardPileRect.x + 1, discardPileRect.y + 1, u8"버리기", dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
+                            screen.DrawString(discardPileRect.x + 2, discardPileRect.y + 2, string("Count ") + to_string(combatSystem->GetDiscardPileCount()), COLOR_WHITE);
+
+                            RenderFrameBox(screen, energyRect, COLOR_YELLOW);
+                            screen.DrawString(energyRect.x + 2, energyRect.y + 1, string(u8"에너지 ") + to_string(combatSystem->GetEnergy()) + "/" + to_string(combatSystem->GetMaxEnergy()), COLOR_YELLOW);
+                            screen.DrawString(energyRect.x + 2, energyRect.y + 2, string(u8"속도 x") + FormatFloat(combatSystem->GetSpeedMultiplier(), 2), COLOR_GREEN);
+
+                            RenderFrameBox(screen, intentRect, COLOR_RED);
+                            const EnemyIntentState& intent = combatSystem->GetCurrentIntent();
+                            const string intentHeader = intent.type == EnemyIntentType::Attack
+                                ? u8"[ATK] 공격 예고"
+                                : (intent.type == EnemyIntentType::Defend ? u8"[BUF] 강화 예고" : u8"[BUF] 강화 예고");
+                            screen.DrawString(intentRect.x + 2, intentRect.y + 1, intentHeader, COLOR_RED);
+                            screen.DrawString(intentRect.x + 2, intentRect.y + 2, string(u8"피해/수치 ") + to_string(intent.value), COLOR_WHITE);
+                            const int gaugeFill = static_cast<int>(std::round((intentRect.width - 4) * combatSystem->GetEnemyIntentProgress01()));
+                            string gauge(static_cast<size_t>(intentRect.width - 4), '.');
+                            for (int fillIndex = 0; fillIndex < gaugeFill && fillIndex < static_cast<int>(gauge.size()); ++fillIndex) {
+                                gauge[static_cast<size_t>(fillIndex)] = '#';
+                            }
+                            screen.DrawString(intentRect.x + 2, intentRect.y + 3, "[" + gauge + "]", COLOR_WHITE);
+
+                            if (playerEntityUi) {
+                                playerEntityUi->Render(screen);
+                            }
+                            if (enemyEntityUi) {
+                                enemyEntityUi->Render(screen);
+                            }
+
+                            for (int cardIndex = 0; cardIndex < cardCount; ++cardIndex) {
+                                if (cardIndex == draggedHandIndex || (draggedHandIndex < 0 && cardIndex == hoveredHandIndex)) {
+                                    continue;
+                                }
+                                handCards[static_cast<size_t>(cardIndex)].Render(screen);
+                            }
+                            if (draggedHandIndex < 0 && hoveredHandIndex >= 0 && hoveredHandIndex < cardCount) {
+                                handCards[static_cast<size_t>(hoveredHandIndex)].Render(screen);
+                            }
+                            if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
+                                handCards[static_cast<size_t>(draggedHandIndex)].Render(screen);
+                            }
+                            if (targetingArrow.IsActive()) {
+                                targetingArrow.Render(screen);
+                            }
+
+                            if (escapeRequested) {
+                                resolveBattleEscape();
+                            }
+                            else if (combatSystem->IsBattleOver()) {
+                                if (combatSystem->DidPlayerWin()) {
+                                    resolveBattleVictory();
+                                }
+                                else {
+                                    audio.PlayEffect(L"battle_defeat.wav", L"sfx_defeat");
+                                    resolveBattleDefeat();
+                                }
+                            }
                         }
-                        if (btnLose.IsClicked()) {
-                            finishRunToEnding(false, to_string(run.currentFloor) + u8"층 보스전에서 쓰러졌습니다.");
+                        else {
+                            resetCombatPresentation();
+                            BattleRewardState& rewards = run.battleRoom.rewards;
+                            if (!rewards.active) {
+                                rewards.active = true;
+                                rewards.title = u8"전리품";
+                                rewards.message = !run.currentRoomSummaryText.empty() ? run.currentRoomSummaryText : u8"정리된 전투입니다.";
+                            }
+
+                            const Rect rewardRect = { roomPanel.x + roomPanel.width / 2 - 40, roomPanel.y + 10, 80, roomPanel.height - 18 };
+                            RenderFrameBox(screen, rewardRect, COLOR_YELLOW);
+                            RenderPanelTitle(screen, rewardRect, rewards.title, COLOR_YELLOW);
+
+                            if (rewards.cardSelectionOpen && rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
+                                const int cardTop = rewardRect.y + 5;
+                                const int cardSpacing = 24;
+                                for (size_t choiceIndex = 0; choiceIndex < rewards.cardChoices.size(); ++choiceIndex) {
+                                    Rect cardRect = { rewardRect.x + 4 + static_cast<int>(choiceIndex) * cardSpacing, cardTop, 22, 14 };
+                                    RenderFrameBox(screen, cardRect, cardRect.Contains(mouseX, mouseY) ? COLOR_YELLOW : COLOR_WHITE);
+                                    screen.DrawString(cardRect.x + 2, cardRect.y + 1, rewards.cardChoices[choiceIndex].name, COLOR_WHITE);
+                                    screen.DrawString(cardRect.x + 2, cardRect.y + 2, string(u8"코스트 ") + to_string(rewards.cardChoices[choiceIndex].cost), COLOR_YELLOW);
+                                    RenderWrappedText(screen, cardRect.x + 2, cardRect.y + 4, cardRect.width - 4, rewards.cardChoices[choiceIndex].description, COLOR_WHITE);
+
+                                    if (cardRect.Contains(mouseX, mouseY) && input.IsLeftClickDown() && run.overlay == RunOverlayType::None) {
+                                        run.deck.push_back(rewards.cardChoices[choiceIndex]);
+                                        rewards.cardRewardClaimed = true;
+                                        rewards.cardSelectionOpen = false;
+                                        rewards.cardChoices.clear();
+                                        SaveManager::SaveContinueRun(run);
+                                        audio.PlayEffect(L"card_pick_sfx.wav", L"sfx_card_pick");
+                                        break;
+                                    }
+                                }
+
+                                ButtonUI btnSkip(rewardRect.x + rewardRect.width / 2 - 8, rewardRect.y + rewardRect.height - 4, 16, 3, u8"넘기기", COLOR_WHITE, COLOR_YELLOW);
+                                if (run.overlay == RunOverlayType::None) {
+                                    btnSkip.Update(input);
+                                }
+                                btnSkip.Render(screen);
+                                if (btnSkip.IsClicked()) {
+                                    rewards.cardSelectionOpen = false;
+                                }
+                            }
+                            else {
+                                int rewardButtonY = rewardRect.y + 5;
+
+                                if (rewards.goldAvailable && !rewards.goldClaimed) {
+                                    ButtonUI btnGold(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, to_string(rewards.goldAmount) + u8" 골드", COLOR_WHITE, COLOR_YELLOW);
+                                    if (run.overlay == RunOverlayType::None) {
+                                        btnGold.Update(input);
+                                    }
+                                    btnGold.Render(screen);
+                                    if (btnGold.IsClicked()) {
+                                        run.gold += rewards.goldAmount;
+                                        rewards.goldClaimed = true;
+                                        SaveManager::SaveContinueRun(run);
+                                    }
+                                    rewardButtonY += 5;
+                                }
+
+                                if (rewards.potionAvailable && !rewards.potionClaimed) {
+                                    ButtonUI btnPotion(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, rewards.potion.name, COLOR_WHITE, COLOR_YELLOW);
+                                    if (run.overlay == RunOverlayType::None) {
+                                        btnPotion.Update(input);
+                                    }
+                                    btnPotion.Render(screen);
+                                    screen.DrawString(rewardRect.x + 6, rewardButtonY + 1, BuildPotionActionText(rewards.potion), FOREGROUND_INTENSITY);
+                                    if (btnPotion.IsClicked()) {
+                                        if (HasPotionSlot(run)) {
+                                            run.potions.push_back(rewards.potion);
+                                            rewards.potionClaimed = true;
+                                            SaveManager::SaveContinueRun(run);
+                                        }
+                                    }
+                                    rewardButtonY += 5;
+                                }
+
+                                if (rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
+                                    ButtonUI btnCard(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, u8"덱에 카드를 추가", COLOR_WHITE, COLOR_YELLOW);
+                                    if (run.overlay == RunOverlayType::None) {
+                                        btnCard.Update(input);
+                                    }
+                                    btnCard.Render(screen);
+                                    if (btnCard.IsClicked()) {
+                                        rewards.cardSelectionOpen = true;
+                                    }
+                                    rewardButtonY += 5;
+                                }
+
+                                if (!HasBattleRewardItemsRemaining(rewards)) {
+                                    RenderWrappedText(screen, rewardRect.x + 4, rewardRect.y + rewardRect.height - 8, rewardRect.width - 8, rewards.message, COLOR_WHITE);
+                                    ButtonUI btnContinue(rewardRect.x + rewardRect.width / 2 - 8, rewardRect.y + rewardRect.height - 4, 16, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
+                                    if (run.overlay == RunOverlayType::None) {
+                                        btnContinue.Update(input);
+                                    }
+                                    btnContinue.Render(screen);
+                                    if (btnContinue.IsClicked()) {
+                                        run.currentRoomSummaryTitle = rewards.title;
+                                        run.currentRoomSummaryText = rewards.message;
+                                        queueMapReturn();
+                                    }
+                                }
+                            }
                         }
                         break;
                     }
@@ -1122,6 +1785,8 @@ int main() {
                             }
                         }
                         if (btnExit.IsClicked()) {
+                            run.currentRoomSummaryTitle = u8"상점";
+                            run.currentRoomSummaryText = run.shopRoom.noticeText.empty() ? u8"상점 정리를 마치고 다음 노드로 이동할 수 있습니다." : run.shopRoom.noticeText;
                             ResolveCurrentNode(run, RunNodeResultType::Resolved);
                             queueMapReturn();
                         }
@@ -1172,6 +1837,8 @@ int main() {
                             }
                             btnContinue.Render(screen);
                             if (btnContinue.IsClicked()) {
+                                run.currentRoomSummaryTitle = u8"휴식";
+                                run.currentRoomSummaryText = run.restRoom.resultText;
                                 ResolveCurrentNode(run, RunNodeResultType::Resolved);
                                 queueMapReturn();
                             }
@@ -1201,6 +1868,8 @@ int main() {
                                 run.restRoom.noticeText = u8"카드 강화 목록과 실제 강화 효과는 다음 단계에서 연결합니다.";
                             }
                             if (btnLeave.IsClicked()) {
+                                run.currentRoomSummaryTitle = u8"휴식";
+                                run.currentRoomSummaryText = u8"휴식 지점을 정리하고 다음 노드로 이동할 수 있습니다.";
                                 ResolveCurrentNode(run, RunNodeResultType::Resolved);
                                 queueMapReturn();
                             }
@@ -1221,6 +1890,8 @@ int main() {
                             }
                             btnContinue.Render(screen);
                             if (btnContinue.IsClicked()) {
+                                run.currentRoomSummaryTitle = u8"보물";
+                                run.currentRoomSummaryText = run.treasureRoom.resultText;
                                 ResolveCurrentNode(run, RunNodeResultType::Resolved);
                                 queueMapReturn();
                             }
@@ -1280,6 +1951,8 @@ int main() {
                             }
                             btnContinue.Render(screen);
                             if (btnContinue.IsClicked()) {
+                                run.currentRoomSummaryTitle = run.eventRoom.resultTitle.empty() ? u8"미지 이벤트" : run.eventRoom.resultTitle;
+                                run.currentRoomSummaryText = run.eventRoom.resultText;
                                 ResolveCurrentNode(run, RunNodeResultType::Resolved);
                                 queueMapReturn();
                             }
@@ -1347,6 +2020,16 @@ int main() {
                 RenderFrameBox(screen, overlayRect, COLOR_YELLOW);
                 RenderPanelTitle(screen, overlayRect, u8"지도", COLOR_YELLOW);
                 screen.DrawString(overlayRect.x + 3, overlayRect.y + 2, u8"M 또는 ESC로 닫기 / 휠로 스크롤 / 클릭으로 진입", FOREGROUND_INTENSITY);
+
+                ButtonUI btnReturnRoom(overlayRect.x + overlayRect.width - 20, overlayRect.y + overlayRect.height - 4, 16, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
+                if (run.currentNodeId >= 0) {
+                    btnReturnRoom.Update(input);
+                    btnReturnRoom.Render(screen);
+                    if (btnReturnRoom.IsClicked()) {
+                        run.overlay = RunOverlayType::None;
+                        tooltip.SetVisible(false);
+                    }
+                }
 
                 mapRenderer.Update(input);
                 mapRenderer.Render(screen);

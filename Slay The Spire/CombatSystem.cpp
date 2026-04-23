@@ -407,6 +407,10 @@ CombatActionResult CombatSystem::TryDiscardCard(int handIndex) {
     return result;
 }
 
+void CombatSystem::AddEnergy(int amount) {
+    GainEnergy(amount);
+}
+
 float CombatSystem::GetEnemyIntentRemainingSec() const {
     const float remaining = GetScaledEnemyIntentIntervalSec() - enemyIntentElapsedSec;
     return (std::max)(0.0f, remaining);

@@ -122,6 +122,7 @@ public:
 
     CombatActionResult TryUseCard(int handIndex, CombatDropTarget target);
     CombatActionResult TryDiscardCard(int handIndex);
+    void AddEnergy(int amount);
 
     const std::vector<CardData>& GetHand() const { return hand; }
     const EnemyIntentState& GetCurrentIntent() const { return currentIntent; }
