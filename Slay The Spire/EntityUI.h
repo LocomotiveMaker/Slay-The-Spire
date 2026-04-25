@@ -15,10 +15,16 @@ private:
     bool isPlayer;
     bool isTargeted;
     int hitAnimationTimer;
+    int anchorCenterX;
+    int anchorBottomY;
+    int artWidth;
+    int artHeight;
+    int healthBarWidth;
 
     ProgressBarUI* healthBar; // 체력바 컴포넌트
 
     std::vector<std::string> asciiArt;
+    void RefreshLayout();
 
 public:
     EntityUI(int x, int y, EntityData* entityData, bool isPlayer);
@@ -26,6 +32,12 @@ public:
 
     void SetTargeted(bool state);
     void TriggerHitAnimation();
+    void SetAnchorBottomCenter(int centerX, int bottomY);
+    int GetArtCenterX() const { return anchorCenterX; }
+    int GetArtTopY() const { return anchorBottomY - artHeight + 1; }
+    int GetArtBottomY() const { return anchorBottomY; }
+    int GetArtWidth() const { return artWidth; }
+    int GetArtHeight() const { return artHeight; }
 
     // UIElement 오버라이드
     bool Update(InputManager& input) override;

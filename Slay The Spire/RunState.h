@@ -110,6 +110,7 @@ struct RunNodeState {
     bool visited = false;
     bool completed = false;
     bool isCurrent = false;
+    bool reachable = false;
     RunNodeResultType result = RunNodeResultType::None;
 };
 
@@ -301,5 +302,6 @@ bool EnterNode(RunStateData& run, int nodeId);
 void UnlockNextNodes(RunStateData& run, int nodeId);
 void ResolveCurrentNode(RunStateData& run, RunNodeResultType result);
 void ReopenCurrentNodeIntro(RunStateData& run);
+void RefreshReachableNodes(RunStateData& run);
 
 RunRecordData BuildRunRecord(const RunStateData& run, bool won, const std::string& failureReasonText);

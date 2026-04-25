@@ -444,6 +444,15 @@ void EnsureStatsFromRecord(const RunRecordData& record, GlobalStatsData& stats) 
     }
 }
 
+RunStateData BuildSanitizedContinueRun(const RunStateData& source) {
+    RunStateData sanitized = source;
+    sanitized.overlay = RunOverlayType::None;
+    sanitized.pendingConfirm = ConfirmActionType::None;
+    sanitized.pendingExitToTitle = false;
+    sanitized.battleRoom.rewards.cardSelectionOpen = false;
+    return sanitized;
+}
+
 } // namespace
 
 std::filesystem::path SaveManager::GetProjectRoot() {
@@ -777,6 +786,12 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
         ReopenCurrentNodeIntro(run);
     }
 
+    run.overlay = RunOverlayType::None;
+    run.pendingConfirm = ConfirmActionType::None;
+    run.pendingExitToTitle = false;
+    run.battleRoom.rewards.cardSelectionOpen = false;
+    RefreshReachableNodes(run);
+
     return true;
 }
 
@@ -786,55 +801,57 @@ bool SaveManager::SaveContinueRun(const RunStateData& run) {
         return false;
     }
 
-    out << "VERSION " << kSaveFormatVersion << '\n';
-    out << "SEED " << run.seed << '\n';
-    out << "TOTAL_FLOORS " << run.totalFloors << '\n';
-    out << "CURRENT_FLOOR " << run.currentFloor << '\n';
-    out << "CURRENT_NODE " << run.currentNodeId << '\n';
-    out << "GOLD " << run.gold << '\n';
-    out << "PLAY_TIME " << run.playTimeSec << '\n';
-    out << "FINISHED " << static_cast<int>(run.finished) << '\n';
-    out << "WON " << static_cast<int>(run.won) << '\n';
-    out << "LOSE_RECORD_COMMITTED " << static_cast<int>(run.loseRecordCommitted) << '\n';
-    out << "PLAYER_NAME " << std::quoted(run.playerName) << '\n';
-    out << "SELECTED_PACK " << std::quoted(run.selectedCardPackTitle) << '\n';
-    out << "FAILURE_REASON " << std::quoted(run.failureReasonText) << '\n';
-    out << "ROOM_SUMMARY_TITLE " << std::quoted(run.currentRoomSummaryTitle) << '\n';
-    out << "ROOM_SUMMARY_TEXT " << std::quoted(run.currentRoomSummaryText) << '\n';
-    out << "PLAYER " << run.player.id << ' ' << std::quoted(run.player.name) << ' ' << run.player.currentHp << ' ' << run.player.maxHp << ' '
-        << run.player.block << ' ' << run.player.strength << ' ' << run.player.vulnerable << ' ' << run.player.weak << ' ' << run.player.poison << '\n';
-    out << "SCENE " << static_cast<int>(run.scene) << '\n';
-    out << "OVERLAY " << static_cast<int>(run.overlay) << '\n';
-    out << "CONFIRM " << static_cast<int>(run.pendingConfirm) << '\n';
-    out << "ROOM_TYPE " << static_cast<int>(run.currentRoomType) << '\n';
-    out << "ROOM_RESULT " << static_cast<int>(run.currentRoomResult) << '\n';
-    out << "ROOM_RESOLVED " << static_cast<int>(run.roomResolved) << '\n';
-    out << "PENDING_EXIT " << static_cast<int>(run.pendingExitToTitle) << '\n';
-    WriteSnapshot(out, run.nodeEntrySnapshot);
-    WriteBattleRoom(out, run.battleRoom);
+    const RunStateData sanitized = BuildSanitizedContinueRun(run);
 
-    out << "DECK_COUNT " << run.deck.size() << '\n';
-    for (const CardData& card : run.deck) {
+    out << "VERSION " << kSaveFormatVersion << '\n';
+    out << "SEED " << sanitized.seed << '\n';
+    out << "TOTAL_FLOORS " << sanitized.totalFloors << '\n';
+    out << "CURRENT_FLOOR " << sanitized.currentFloor << '\n';
+    out << "CURRENT_NODE " << sanitized.currentNodeId << '\n';
+    out << "GOLD " << sanitized.gold << '\n';
+    out << "PLAY_TIME " << sanitized.playTimeSec << '\n';
+    out << "FINISHED " << static_cast<int>(sanitized.finished) << '\n';
+    out << "WON " << static_cast<int>(sanitized.won) << '\n';
+    out << "LOSE_RECORD_COMMITTED " << static_cast<int>(sanitized.loseRecordCommitted) << '\n';
+    out << "PLAYER_NAME " << std::quoted(sanitized.playerName) << '\n';
+    out << "SELECTED_PACK " << std::quoted(sanitized.selectedCardPackTitle) << '\n';
+    out << "FAILURE_REASON " << std::quoted(sanitized.failureReasonText) << '\n';
+    out << "ROOM_SUMMARY_TITLE " << std::quoted(sanitized.currentRoomSummaryTitle) << '\n';
+    out << "ROOM_SUMMARY_TEXT " << std::quoted(sanitized.currentRoomSummaryText) << '\n';
+    out << "PLAYER " << sanitized.player.id << ' ' << std::quoted(sanitized.player.name) << ' ' << sanitized.player.currentHp << ' ' << sanitized.player.maxHp << ' '
+        << sanitized.player.block << ' ' << sanitized.player.strength << ' ' << sanitized.player.vulnerable << ' ' << sanitized.player.weak << ' ' << sanitized.player.poison << '\n';
+    out << "SCENE " << static_cast<int>(sanitized.scene) << '\n';
+    out << "OVERLAY " << static_cast<int>(sanitized.overlay) << '\n';
+    out << "CONFIRM " << static_cast<int>(sanitized.pendingConfirm) << '\n';
+    out << "ROOM_TYPE " << static_cast<int>(sanitized.currentRoomType) << '\n';
+    out << "ROOM_RESULT " << static_cast<int>(sanitized.currentRoomResult) << '\n';
+    out << "ROOM_RESOLVED " << static_cast<int>(sanitized.roomResolved) << '\n';
+    out << "PENDING_EXIT " << static_cast<int>(sanitized.pendingExitToTitle) << '\n';
+    WriteSnapshot(out, sanitized.nodeEntrySnapshot);
+    WriteBattleRoom(out, sanitized.battleRoom);
+
+    out << "DECK_COUNT " << sanitized.deck.size() << '\n';
+    for (const CardData& card : sanitized.deck) {
         WriteCard(out, card);
     }
 
-    out << "RELIC_COUNT " << run.relics.size() << '\n';
-    for (const RelicData& relic : run.relics) {
+    out << "RELIC_COUNT " << sanitized.relics.size() << '\n';
+    for (const RelicData& relic : sanitized.relics) {
         WriteRelic(out, relic);
     }
 
-    out << "POTION_COUNT " << run.potions.size() << '\n';
-    for (const PotionData& potion : run.potions) {
+    out << "POTION_COUNT " << sanitized.potions.size() << '\n';
+    for (const PotionData& potion : sanitized.potions) {
         WritePotion(out, potion);
     }
 
-    out << "NODE_COUNT " << run.nodes.size() << '\n';
-    for (const RunNodeState& node : run.nodes) {
+    out << "NODE_COUNT " << sanitized.nodes.size() << '\n';
+    for (const RunNodeState& node : sanitized.nodes) {
         WriteNode(out, node);
     }
 
-    out << "VISITED_TYPE_COUNT " << run.visitedNodeTypes.size() << '\n';
-    for (RunNodeType type : run.visitedNodeTypes) {
+    out << "VISITED_TYPE_COUNT " << sanitized.visitedNodeTypes.size() << '\n';
+    for (RunNodeType type : sanitized.visitedNodeTypes) {
         out << static_cast<int>(type) << '\n';
     }
 

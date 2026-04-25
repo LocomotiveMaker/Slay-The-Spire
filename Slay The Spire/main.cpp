@@ -41,6 +41,14 @@ struct Rect {
     }
 };
 
+enum class EndingStage {
+    None,
+    DefeatReveal,
+    DefeatRecord,
+    VictoryReveal,
+    VictorySummary
+};
+
 int GetTargetRefreshRate() {
     HDC desktopDc = GetDC(nullptr);
     if (desktopDc == nullptr) {
@@ -87,6 +95,82 @@ uint32_t BuildSeed(const SettingsData& settings) {
     const uint64_t timeSeed = static_cast<uint64_t>(chrono::steady_clock::now().time_since_epoch().count());
     random_device rd;
     return static_cast<uint32_t>((timeSeed ^ rd()) & 0xFFFFFFFFu);
+}
+
+float Clamp01(float value) {
+    return (std::max)(0.0f, (std::min)(1.0f, value));
+}
+
+float EaseInOutCubic(float value) {
+    const float t = Clamp01(value);
+    return (t < 0.5f)
+        ? (4.0f * t * t * t)
+        : (1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) / 2.0f);
+}
+
+float EaseOutCubic(float value) {
+    const float t = Clamp01(value);
+    return 1.0f - std::pow(1.0f - t, 3.0f);
+}
+
+int LerpInt(int from, int to, float t) {
+    return static_cast<int>(std::round(static_cast<float>(from) + ((static_cast<float>(to - from)) * Clamp01(t))));
+}
+
+Rect LerpRectFixedTopCenter(const Rect& from, const Rect& to, float t) {
+    const float eased = Clamp01(t);
+    const int width = LerpInt(from.width, to.width, eased);
+    const int height = LerpInt(from.height, to.height, eased);
+    const int centerX = from.x + (from.width / 2);
+
+    Rect result = {};
+    result.width = width;
+    result.height = height;
+    result.x = centerX - (width / 2);
+    result.y = from.y;
+    return result;
+}
+
+int MeasureArtWidth(const std::vector<std::string>& lines) {
+    int width = 0;
+    for (const std::string& line : lines) {
+        width = (std::max)(width, TextLayout::MeasureDisplayWidthUtf8(line));
+    }
+    return width;
+}
+
+void RenderAnchoredArt(ScreenManager& screen, int centerX, int bottomY, const std::vector<std::string>& lines, WORD color) {
+    if (lines.empty()) {
+        return;
+    }
+
+    const int artWidth = MeasureArtWidth(lines);
+    const int artTopY = bottomY - static_cast<int>(lines.size()) + 1;
+    const int artLeftX = centerX - (artWidth / 2);
+    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+        const int lineWidth = TextLayout::MeasureDisplayWidthUtf8(lines[lineIndex]);
+        const int drawX = artLeftX + ((artWidth - lineWidth) / 2);
+        screen.DrawString(drawX, artTopY + static_cast<int>(lineIndex), lines[lineIndex], color);
+    }
+}
+
+std::vector<std::string> BuildDeathPlayerArt() {
+    return {
+        u8"⢀⣀⣀⣀⣀",
+        u8"⣠⣴⣶⣶⣶⣶⣶⣶⣾⣿⣿⣿⣿⣿⣿⣟",
+        u8"⢀⣴⣤⣤⣤⣴⣶⣦⣶⣶⣿⣿⣿⣿⣿⣿⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏",
+        u8"⠿⠟⠋⠛⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠛⠩⠛⠻⠿⠿⣿⡿⢟⣟⢠⣄⡀",
+        u8"⢀⣾⣿⣿⣿⣿⣿⣿⣿⡿⠿⠛⠛⠉⠉⠀⠀⠀⠀⠀⠀⠀⢠⣀⣠⣀⣴⣿⠿⠿⢷⣿⣶",
+        u8"⡾⠋⠁⠀⠀⠀⠀⣀⣀⣠⣤⣤⣤⣴⣶⡶⠶⠾⠿⠟⠛⠛⠋⠉⠏",
+        u8"⠠⢘⠏⠉⠁"
+    };
+}
+
+bool RectFitsInside(const Rect& outer, const Rect& inner) {
+    return inner.x >= outer.x &&
+        inner.y >= outer.y &&
+        inner.x + inner.width <= outer.x + outer.width &&
+        inner.y + inner.height <= outer.y + outer.height;
 }
 
 void RenderFrameBox(ScreenManager& screen, const Rect& rect, WORD color) {
@@ -422,6 +506,57 @@ void RenderTextBlock(ScreenManager& screen, const Rect& rect, const vector<strin
     }
 }
 
+bool RenderWrappedActionButton(
+    ScreenManager& screen,
+    InputManager& input,
+    const Rect& rect,
+    int mouseX,
+    int mouseY,
+    const std::vector<std::string>& lines,
+    WORD idleColor,
+    WORD hoverColor,
+    bool interactive,
+    TextLayout::HorizontalAlign align = TextLayout::HorizontalAlign::Center) {
+    const bool hovered = rect.Contains(mouseX, mouseY);
+    const WORD color = hovered ? hoverColor : idleColor;
+    RenderFrameBox(screen, rect, color);
+
+    std::vector<std::wstring> wrappedLines;
+    for (const std::string& line : lines) {
+        const TextLayout::WrappedText wrapped = TextLayout::WrapUtf8(line, rect.width - 4);
+        wrappedLines.insert(wrappedLines.end(), wrapped.lines.begin(), wrapped.lines.end());
+    }
+
+    const int contentHeight = static_cast<int>(wrappedLines.size());
+    int drawY = TextLayout::ComputeAlignedY(rect.y + 1, rect.height - 2, contentHeight);
+    for (const std::wstring& wrappedLine : wrappedLines) {
+        screen.DrawString(
+            rect.x + 2,
+            drawY,
+            TextLayout::AlignToWidth(wrappedLine, rect.width - 4, align),
+            color);
+        ++drawY;
+        if (drawY >= rect.y + rect.height - 1) {
+            break;
+        }
+    }
+
+    return interactive && hovered && input.IsLeftClickDown();
+}
+
+std::vector<std::string> BuildRunRecordDetailLines(const RunRecordData& record) {
+    return {
+        string(u8"날짜: ") + record.timestampText,
+        string(u8"시드: ") + to_string(record.seed),
+        string(u8"플레이 시간: ") + FormatPlayTime(record.playTimeSec),
+        string(u8"도달 층: ") + to_string(record.reachedFloor),
+        record.failureReasonText.empty() ? u8"패배 원인: 없음" : (string(u8"패배 원인: ") + record.failureReasonText),
+        string(u8"유물: ") + BuildRelicListText(record.relics),
+        string(u8"방문 노드: ") + BuildNodeVisitedText(record.visitedNodes),
+        string(u8"덱 장수: ") + to_string(static_cast<int>(record.deckSnapshot.size()))
+    };
+}
+
 } // namespace
 
 int main() {
@@ -446,10 +581,6 @@ int main() {
     RunStateData run = {};
     bool hasContinueRun = SaveManager::HasContinueRun();
     bool shouldQuit = false;
-    bool showRecordsAfterEnding = false;
-    bool endingWon = false;
-    string endingTitle;
-    string endingBody;
     int selectedRecordIndex = 0;
     int recordsScroll = 0;
     int deckScroll = 0;
@@ -477,6 +608,12 @@ int main() {
     bool wasF10Pressed = false;
     bool wasF11Pressed = false;
     bool wasF12Pressed = false;
+    EndingStage endingStage = EndingStage::None;
+    RunRecordData endingRecord = {};
+    std::string endingFlavorText;
+    float endingRevealProgress = 0.0f;
+    int animatedPackIndex = -1;
+    float cardPackPanelProgress = 0.0f;
 
     auto reloadRecords = [&]() {
         runRecords = SaveManager::LoadRunRecords();
@@ -553,6 +690,12 @@ int main() {
         titleOverlay = TitleOverlayType::None;
         deckScroll = 0;
         runPlayAccumulatorSec = 0.0f;
+        endingStage = EndingStage::None;
+        endingRecord = {};
+        endingFlavorText.clear();
+        endingRevealProgress = 0.0f;
+        animatedPackIndex = -1;
+        cardPackPanelProgress = 0.0f;
         queueRoomBgm();
         };
 
@@ -574,6 +717,12 @@ int main() {
         titleOverlay = TitleOverlayType::None;
         deckScroll = 0;
         runPlayAccumulatorSec = 0.0f;
+        endingStage = EndingStage::None;
+        endingRecord = {};
+        endingFlavorText.clear();
+        endingRevealProgress = 0.0f;
+        animatedPackIndex = (run.selectedStarterPackIndex >= 0) ? run.selectedStarterPackIndex : -1;
+        cardPackPanelProgress = (run.selectedStarterPackIndex >= 0) ? 1.0f : 0.0f;
         queueRoomBgm();
         return true;
         };
@@ -581,29 +730,30 @@ int main() {
     auto transitionToTitle = [&]() {
         appState = AppState::Title;
         run = {};
-        titleOverlay = showRecordsAfterEnding ? TitleOverlayType::Records : TitleOverlayType::None;
-        showRecordsAfterEnding = false;
+        titleOverlay = TitleOverlayType::None;
         mapRenderer.SetNodes(nullptr);
         resetCombatPresentation();
         tooltip.SetVisible(false);
         hasContinueRun = SaveManager::HasContinueRun();
+        endingStage = EndingStage::None;
+        endingRecord = {};
+        endingFlavorText.clear();
+        endingRevealProgress = 0.0f;
+        animatedPackIndex = -1;
+        cardPackPanelProgress = 0.0f;
         audio.QueueBGMFade(L"Slay the Spire.wav", 100.0f, 0.2f, 0.45f);
         lastQueuedBgmTrack = L"Slay the Spire.wav";
         lastQueuedBgmPercent = 100;
         };
 
     auto finishRunToEnding = [&](bool won, const string& failureReasonText) {
-        endingWon = won;
-        endingTitle = won ? u8"프로토타입 엔딩" : u8"프로토타입 패배";
-        endingBody = won
-            ? (string(u8"보스를 쓰러뜨렸습니다.\n시드 ") + to_string(run.seed) + "\n플레이 시간 " + FormatPlayTime(run.playTimeSec))
-            : failureReasonText;
-
         run.finished = true;
         run.won = won;
 
+        RunRecordData record = BuildRunRecord(run, won, failureReasonText);
+        endingRecord = record;
+
         if (!run.loseRecordCommitted || won) {
-            RunRecordData record = BuildRunRecord(run, won, failureReasonText);
             SaveManager::AppendRunRecord(record, globalStats);
             reloadRecords();
             run.loseRecordCommitted = true;
@@ -611,27 +761,23 @@ int main() {
 
         SaveManager::DeleteContinueRun();
         hasContinueRun = false;
-        showRecordsAfterEnding = true;
-        resetCombatPresentation();
         tooltip.SetVisible(false);
         activeSliderId = -1;
         run.pendingConfirm = ConfirmActionType::None;
         run.overlay = RunOverlayType::Ending;
         appState = AppState::Run;
-        audio.FadeCurrentBGMTo(35.0f, 0.25f);
+        endingRevealProgress = 0.0f;
+        endingFlavorText = ((run.seed + static_cast<std::uint32_t>(run.currentFloor) + (won ? 1u : 0u)) % 2 == 0)
+            ? u8"당신은 죽었습니다!"
+            : u8"더럽혀짐";
+        endingStage = won ? EndingStage::VictoryReveal : EndingStage::DefeatReveal;
+        audio.FadeCurrentBGMTo(won ? 0.0f : 20.0f, won ? 0.5f : 0.35f);
         };
 
     auto abandonContinueRunFromTitle = [&]() {
-        RunStateData loadedRun = {};
-        if (SaveManager::LoadContinueRun(loadedRun)) {
-            const string failureReason = to_string((std::max)(1, loadedRun.currentFloor)) + u8"층에서 도전을 포기하셨습니다.";
-            RunRecordData record = BuildRunRecord(loadedRun, false, failureReason);
-            SaveManager::AppendRunRecord(record, globalStats);
-            reloadRecords();
-        }
         SaveManager::DeleteContinueRun();
         hasContinueRun = false;
-        titleOverlay = TitleOverlayType::Records;
+        titleOverlay = TitleOverlayType::None;
         };
 
     auto abandonRunFromSettings = [&]() {
@@ -739,7 +885,7 @@ int main() {
             if (pressedF12) openDebugRoom(RunNodeType::Boss);
         }
 
-        if (appState == AppState::Run) {
+        if (appState == AppState::Run && run.overlay != RunOverlayType::Ending) {
             queueRoomBgm();
         }
 
@@ -827,16 +973,16 @@ int main() {
             }
 
             if (titleOverlay == TitleOverlayType::Settings) {
-                const Rect popup = { 18, 6, screen.GetWidth() - 36, screen.GetHeight() - 12 };
+                const Rect popup = { screen.GetCenterX() - 34, 7, 68, 24 };
                 RenderFrameBox(screen, popup, COLOR_YELLOW);
                 RenderPanelTitle(screen, popup, u8"설정", COLOR_YELLOW);
 
                 const int contentLeft = popup.x + 4;
                 const int contentWidth = popup.width - 8;
-                Rect masterTrack = { contentLeft + 14, popup.y + 5, contentWidth - 18, 1 };
-                Rect bgmTrack = { contentLeft + 14, popup.y + 7, contentWidth - 18, 1 };
-                Rect sfxTrack = { contentLeft + 14, popup.y + 9, contentWidth - 18, 1 };
-                Rect speedTrack = { contentLeft + 14, popup.y + 11, contentWidth - 18, 1 };
+                Rect masterTrack = { contentLeft + 12, popup.y + 5, contentWidth - 20, 1 };
+                Rect bgmTrack = { contentLeft + 12, popup.y + 7, contentWidth - 20, 1 };
+                Rect sfxTrack = { contentLeft + 12, popup.y + 9, contentWidth - 20, 1 };
+                Rect speedTrack = { contentLeft + 12, popup.y + 11, contentWidth - 20, 1 };
 
                 UpdateSliderDrag(input, mouseX, 0, masterTrack, settings.masterVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 1, bgmTrack, settings.bgmVolume, activeSliderId);
@@ -848,11 +994,11 @@ int main() {
                 RenderSlider(screen, contentLeft, popup.y + 9, contentWidth, u8"SFX", settings.sfxVolume, activeSliderId == 2);
                 RenderSlider(screen, contentLeft, popup.y + 11, contentWidth, u8"속도", settings.gameSpeedPercent, activeSliderId == 3);
 
-                ButtonUI btnToggleEffects(contentLeft, popup.y + 14, 22, 3, string(u8"이펙트 ") + (settings.effectsEnabled ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnToggleDebug(contentLeft + 24, popup.y + 14, 22, 3, string(u8"디버그 ") + (settings.debugMode ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnToggleChar(contentLeft, popup.y + 18, 22, 3, string(u8"캐릭 선택 ") + (settings.enableCharacterSelect ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnToggleAsc(contentLeft + 24, popup.y + 18, 22, 3, string(u8"승천 선택 ") + (settings.enableAscensionSelect ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnClose(popup.x + popup.width - 20, popup.y + popup.height - 5, 16, 3, u8"닫기", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnToggleEffects(contentLeft, popup.y + 14, 18, 3, string(u8"이펙트 ") + (settings.effectsEnabled ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnToggleDebug(contentLeft + 20, popup.y + 14, 18, 3, string(u8"디버그 ") + (settings.debugMode ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnToggleChar(contentLeft, popup.y + 18, 18, 3, string(u8"캐릭 선택 ") + (settings.enableCharacterSelect ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnToggleAsc(contentLeft + 20, popup.y + 18, 18, 3, string(u8"승천 선택 ") + (settings.enableAscensionSelect ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnClose(popup.x + popup.width - 18, popup.y + popup.height - 4, 14, 3, u8"닫기", COLOR_WHITE, COLOR_YELLOW);
 
                 btnToggleEffects.Update(input);
                 btnToggleDebug.Update(input);
@@ -866,7 +1012,7 @@ int main() {
                 btnToggleAsc.Render(screen);
                 btnClose.Render(screen);
 
-                screen.DrawString(contentLeft, popup.y + 22, u8"커스텀 시드 입력: 추후 구현 예정", FOREGROUND_INTENSITY);
+                screen.DrawString(contentLeft, popup.y + popup.height - 7, u8"커스텀 시드 입력: 추후 구현 예정", FOREGROUND_INTENSITY);
 
                 if (btnToggleEffects.IsClicked()) { settings.effectsEnabled = !settings.effectsEnabled; settingsDirty = true; }
                 if (btnToggleDebug.IsClicked()) { settings.debugMode = !settings.debugMode; settingsDirty = true; }
@@ -887,13 +1033,17 @@ int main() {
                 RenderFrameBox(screen, popup, COLOR_YELLOW);
                 RenderPanelTitle(screen, popup, u8"기록", COLOR_YELLOW);
 
-                if (pressedEsc) {
+                ButtonUI btnBack(popup.x + popup.width - 18, popup.y + popup.height - 4, 14, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
+                btnBack.Update(input);
+                btnBack.Render(screen);
+
+                if (pressedEsc || btnBack.IsClicked()) {
                     titleOverlay = TitleOverlayType::None;
                 }
 
                 if (!runRecords.empty()) {
                     const int listTop = popup.y + 5;
-                    const int visibleCount = popup.height - 10;
+                    const int visibleCount = popup.height - 12;
                     if (input.GetWheelDelta() != 0) {
                         recordsScroll -= input.GetWheelDelta();
                     }
@@ -925,16 +1075,7 @@ int main() {
                     RenderFrameBox(screen, detailRect, COLOR_WHITE);
                     RenderPanelTitle(screen, detailRect, selectedRecord.won ? u8"승리 기록" : u8"패배 기록", selectedRecord.won ? COLOR_GREEN : COLOR_RED);
 
-                    const vector<string> detailLines = {
-                        string(u8"날짜: ") + selectedRecord.timestampText,
-                        string(u8"시드: ") + to_string(selectedRecord.seed),
-                        string(u8"플레이 시간: ") + FormatPlayTime(selectedRecord.playTimeSec),
-                        string(u8"도달 층: ") + to_string(selectedRecord.reachedFloor),
-                        selectedRecord.failureReasonText.empty() ? u8"패배 원인: 없음" : (string(u8"패배 원인: ") + selectedRecord.failureReasonText),
-                        string(u8"유물: ") + BuildRelicListText(selectedRecord.relics),
-                        string(u8"방문 노드: ") + BuildNodeVisitedText(selectedRecord.visitedNodes),
-                        string(u8"덱 장수: ") + to_string(static_cast<int>(selectedRecord.deckSnapshot.size()))
-                    };
+                    const vector<string> detailLines = BuildRunRecordDetailLines(selectedRecord);
 
                     for (size_t index = 0; index < detailLines.size(); ++index) {
                         RenderWrappedText(screen, detailRect.x + 2, detailRect.y + 3 + static_cast<int>(index) * 2, detailRect.width - 4, detailLines[index], COLOR_WHITE);
@@ -1035,11 +1176,25 @@ int main() {
 
             const string hpText = string(u8"체력: ") + to_string(run.player.currentHp) + "/" + to_string(run.player.maxHp);
             const string goldText = string(u8"골드: ") + to_string(run.gold);
-            const string floorText = string(u8"층: ") + to_string((std::max)(1, run.currentFloor));
-            screen.DrawString(2, 1, run.playerName, COLOR_WHITE);
-            screen.DrawString(screen.GetCenterX() - 8, 1, hpText, COLOR_RED);
-            screen.DrawString(screen.GetCenterX() + 16, 1, goldText, COLOR_YELLOW);
-            screen.DrawString(screen.GetWidth() - 18, 1, floorText, COLOR_WHITE);
+            const string floorText = string(u8"층수: ") + to_string((std::max)(1, run.currentFloor));
+            const string playTimeText = string(u8"플레이: ") + FormatPlayTime(run.playTimeSec);
+            int hudCursorX = 2;
+            screen.DrawString(hudCursorX, 1, hpText, COLOR_RED);
+            hudCursorX += TextLayout::MeasureDisplayWidthUtf8(hpText) + 4;
+            screen.DrawString(hudCursorX, 1, goldText, COLOR_YELLOW);
+            hudCursorX += TextLayout::MeasureDisplayWidthUtf8(goldText) + 4;
+            const int hudPotionStartX = hudCursorX;
+
+            const string centerHudText = floorText + string("   ") + playTimeText;
+            screen.DrawString(
+                TextLayout::ComputeAlignedXUtf8(0, screen.GetWidth(), centerHudText, TextLayout::HorizontalAlign::Center),
+                1,
+                centerHudText,
+                COLOR_WHITE);
+
+            if (!(IsBattleNodeType(run.currentRoomType) && run.scene == RunSceneType::Room && run.overlay != RunOverlayType::Ending && !run.roomResolved)) {
+                screen.DrawString(hudPotionStartX, 1, string(u8"포션: ") + BuildPotionListText(run.potions), FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            }
             screen.DrawString(0, 3, string(static_cast<size_t>(screen.GetWidth()), '='), FOREGROUND_INTENSITY);
 
             const bool showRunNavigation = (run.scene != RunSceneType::CardPackSelect);
@@ -1097,21 +1252,32 @@ int main() {
             btnSettings.Render(screen);
 
             if (run.scene == RunSceneType::CardPackSelect) {
-                const Rect headline = { screen.GetCenterX() - 32, 7, 64, 5 };
-                const Rect detailRect = { screen.GetCenterX() - 44, 39, 88, 14 };
+                const Rect headline = { screen.GetCenterX() - 32, 7, 64, 7 };
+                const Rect collapsedDetailRect = { screen.GetCenterX() - 26, 39, 52, 7 };
+                const Rect expandedDetailRect = { 2, 34, screen.GetWidth() - 4, (screen.GetHeight() - 9) - 34 };
                 RenderFrameBox(screen, headline, COLOR_YELLOW);
-                RenderPanelTitle(screen, headline, u8"시너지 카드팩 선택", COLOR_YELLOW);
+                screen.DrawString(
+                    headline.x + 1,
+                    headline.y + 1,
+                    TextLayout::AlignToWidth(TextLayout::Utf8ToWide(u8"시너지 카드팩 선택"), headline.width - 2, TextLayout::HorizontalAlign::Center),
+                    COLOR_YELLOW);
                 RenderWrappedText(screen, headline.x + 3, headline.y + 3, headline.width - 6, u8"첫 시작에서는 반드시 3개 중 하나의 카드팩을 고른 뒤 확인 버튼으로 런을 시작합니다.", COLOR_WHITE);
 
-                int previewIndex = run.selectedStarterPackIndex;
+                std::vector<Rect> packRects;
+                packRects.reserve(starterPacks.size());
+                int hoveredPackIndex = -1;
                 for (size_t packIndex = 0; packIndex < starterPacks.size(); ++packIndex) {
                     const int panelWidth = 28;
                     const int panelHeight = 20;
                     const int startX = screen.GetCenterX() - 46 + static_cast<int>(packIndex) * 31;
                     const Rect packRect = { startX, 15, panelWidth, panelHeight };
+                    packRects.push_back(packRect);
                     const bool hovered = packRect.Contains(mouseX, mouseY);
                     const bool selected = (run.selectedStarterPackIndex == static_cast<int>(packIndex));
                     const WORD frameColor = selected || hovered ? starterPacks[packIndex].accentColor : COLOR_WHITE;
+                    if (hovered) {
+                        hoveredPackIndex = static_cast<int>(packIndex);
+                    }
 
                     RenderFrameBox(screen, packRect, frameColor);
                     RenderPanelTitle(screen, packRect, starterPacks[packIndex].title, frameColor);
@@ -1127,42 +1293,147 @@ int main() {
                     }
 
                     screen.DrawString(packRect.x + 2, packRect.y + panelHeight - 3, selected ? u8"선택됨" : u8"클릭하여 선택", selected ? frameColor : FOREGROUND_INTENSITY);
-                    if (hovered) {
-                        previewIndex = static_cast<int>(packIndex);
-                    }
                     if (hovered && input.IsLeftClickDown()) {
                         run.selectedStarterPackIndex = static_cast<int>(packIndex);
+                        animatedPackIndex = static_cast<int>(packIndex);
+                        cardPackPanelProgress = (std::max)(cardPackPanelProgress, 0.35f);
                     }
                 }
+
+                const int targetPackIndex = (run.selectedStarterPackIndex >= 0) ? run.selectedStarterPackIndex : hoveredPackIndex;
+                if (targetPackIndex >= 0 && animatedPackIndex != targetPackIndex && cardPackPanelProgress > 0.0f) {
+                    animatedPackIndex = targetPackIndex;
+                }
+                if (animatedPackIndex < 0 && targetPackIndex >= 0) {
+                    animatedPackIndex = targetPackIndex;
+                }
+
+                const float animationTarget = (targetPackIndex >= 0) ? 1.0f : 0.0f;
+                const float animationStep = deltaTimeSec * 3.4f;
+                if (cardPackPanelProgress < animationTarget) {
+                    cardPackPanelProgress = (std::min)(animationTarget, cardPackPanelProgress + animationStep);
+                }
+                else if (cardPackPanelProgress > animationTarget) {
+                    cardPackPanelProgress = (std::max)(animationTarget, cardPackPanelProgress - animationStep);
+                }
+                if (cardPackPanelProgress <= 0.001f && run.selectedStarterPackIndex < 0 && hoveredPackIndex < 0) {
+                    animatedPackIndex = -1;
+                }
+
+                const int previewIndex = (run.selectedStarterPackIndex >= 0)
+                    ? run.selectedStarterPackIndex
+                    : animatedPackIndex;
+                const float easedPanelProgress = EaseInOutCubic(cardPackPanelProgress);
+                const Rect animatedDetailRect = LerpRectFixedTopCenter(collapsedDetailRect, expandedDetailRect, easedPanelProgress);
+                const WORD detailColor =
+                    (previewIndex >= 0 && previewIndex < static_cast<int>(starterPacks.size()))
+                    ? starterPacks[static_cast<size_t>(previewIndex)].accentColor
+                    : COLOR_WHITE;
+
+                RenderFrameBox(screen, animatedDetailRect, detailColor);
 
                 if (previewIndex >= 0 && previewIndex < static_cast<int>(starterPacks.size())) {
                     const CardPackOption& previewPack = starterPacks[static_cast<size_t>(previewIndex)];
-                    vector<string> previewLines;
-                    previewLines.push_back(previewPack.description);
-                    previewLines.push_back(string(u8"카드 수: ") + to_string(previewPack.cards.size()));
-                    previewLines.push_back(string(u8"추천 성향: ") + (previewIndex == 0 ? u8"공격 템포" : (previewIndex == 1 ? u8"안정적인 운영" : u8"유틸과 변칙")));
-                    previewLines.push_back(u8"추가되는 카드:");
-                    for (const CardData& card : previewPack.cards) {
-                        previewLines.push_back(string(" - ") + BuildCardSummary(card) + " / " + card.description);
+                    const int stableTitleX = TextLayout::ComputeAlignedXUtf8(
+                        expandedDetailRect.x + 1,
+                        expandedDetailRect.width - 2,
+                        previewPack.title,
+                        TextLayout::HorizontalAlign::Center);
+                    screen.DrawString(stableTitleX, animatedDetailRect.y + 1, previewPack.title, detailColor);
+
+                    const Rect packSummaryRect = { expandedDetailRect.x + expandedDetailRect.width / 2, expandedDetailRect.y + 4, expandedDetailRect.width / 2 - 4, 6 };
+                    const Rect cardDetailRect = { expandedDetailRect.x + expandedDetailRect.width / 2, expandedDetailRect.y + 12, expandedDetailRect.width / 2 - 4, 9 };
+
+                    std::vector<Rect> cardPreviewRects;
+                    cardPreviewRects.reserve(previewPack.cards.size());
+                    const int previewCardWidth = 16;
+                    const int previewCardHeight = 7;
+                    const int previewCardGapX = 3;
+                    const int previewCardGapY = 2;
+                    const int cardGridLeft = expandedDetailRect.x + 3;
+                    const int cardGridTop = expandedDetailRect.y + 4;
+
+                    for (size_t cardIndex = 0; cardIndex < previewPack.cards.size(); ++cardIndex) {
+                        const int column = static_cast<int>(cardIndex % 2);
+                        const int row = static_cast<int>(cardIndex / 2);
+                        cardPreviewRects.push_back({
+                            cardGridLeft + column * (previewCardWidth + previewCardGapX),
+                            cardGridTop + row * (previewCardHeight + previewCardGapY),
+                            previewCardWidth,
+                            previewCardHeight
+                            });
                     }
 
-                    RenderFrameBox(screen, detailRect, previewPack.accentColor);
-                    RenderPanelTitle(screen, detailRect, previewPack.title, previewPack.accentColor);
-                    RenderTextBlock(screen, { detailRect.x + 3, detailRect.y + 4, detailRect.width - 6, detailRect.height - 5 }, previewLines, COLOR_WHITE);
+                    int hoveredPreviewCardIndex = -1;
+                    for (size_t cardIndex = 0; cardIndex < cardPreviewRects.size(); ++cardIndex) {
+                        const Rect& previewCardRect = cardPreviewRects[cardIndex];
+                        if (!RectFitsInside(animatedDetailRect, previewCardRect)) {
+                            continue;
+                        }
+
+                        const bool hoveredCard = previewCardRect.Contains(mouseX, mouseY);
+                        if (hoveredCard) {
+                            hoveredPreviewCardIndex = static_cast<int>(cardIndex);
+                        }
+
+                        RenderFrameBox(screen, previewCardRect, hoveredCard ? detailColor : COLOR_WHITE);
+                        screen.DrawString(
+                            previewCardRect.x + 1,
+                            previewCardRect.y + 1,
+                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(string("[") + to_string(previewPack.cards[cardIndex].cost) + "]"), previewCardRect.width - 2, TextLayout::HorizontalAlign::Left),
+                            detailColor);
+                        screen.DrawString(
+                            previewCardRect.x + 1,
+                            previewCardRect.y + 2,
+                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(previewPack.cards[cardIndex].name), previewCardRect.width - 2, TextLayout::HorizontalAlign::Center),
+                            hoveredCard ? detailColor : COLOR_WHITE);
+                        screen.DrawString(
+                            previewCardRect.x + 1,
+                            previewCardRect.y + 4,
+                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCardTypeText(previewPack.cards[cardIndex].type)), previewCardRect.width - 2, TextLayout::HorizontalAlign::Center),
+                            FOREGROUND_INTENSITY);
+                    }
+
+                    if (RectFitsInside(animatedDetailRect, packSummaryRect)) {
+                        const std::vector<std::string> summaryLines = {
+                            previewPack.description,
+                            string(u8"포함 카드 수: ") + to_string(previewPack.cards.size()),
+                            string(u8"추천 성향: ") + (previewIndex == 0 ? u8"공격 템포" : (previewIndex == 1 ? u8"안정적인 운영" : u8"유틸과 변칙"))
+                        };
+                        RenderTextBlock(screen, { packSummaryRect.x + 1, packSummaryRect.y, packSummaryRect.width - 2, packSummaryRect.height }, summaryLines, COLOR_WHITE);
+                    }
+
+                    if (RectFitsInside(animatedDetailRect, cardDetailRect)) {
+                        std::vector<std::string> detailLines;
+                        if (hoveredPreviewCardIndex >= 0) {
+                            const CardData& hoveredCard = previewPack.cards[static_cast<size_t>(hoveredPreviewCardIndex)];
+                            detailLines.push_back(BuildCardSummary(hoveredCard));
+                            detailLines.push_back(hoveredCard.description);
+                        }
+                        else {
+                            detailLines.push_back(u8"카드를 올려두면 해당 카드의 설명이 이곳에 표시됩니다.");
+                            detailLines.push_back(u8"선택된 카드팩은 시작 후 즉시 덱에 편입됩니다.");
+                        }
+                        RenderTextBlock(screen, { cardDetailRect.x + 1, cardDetailRect.y, cardDetailRect.width - 2, cardDetailRect.height }, detailLines, COLOR_WHITE);
+                    }
                 }
                 else {
-                    RenderFrameBox(screen, detailRect, COLOR_WHITE);
-                    RenderPanelTitle(screen, detailRect, u8"선택 대기", COLOR_WHITE);
-                    RenderWrappedText(screen, detailRect.x + 3, detailRect.y + 5, detailRect.width - 6, u8"카드팩 위에 마우스를 올리거나 클릭하면 상세 정보가 표시됩니다.", COLOR_WHITE);
+                    const int stableTitleX = TextLayout::ComputeAlignedXUtf8(
+                        expandedDetailRect.x + 1,
+                        expandedDetailRect.width - 2,
+                        u8"선택 대기",
+                        TextLayout::HorizontalAlign::Center);
+                    screen.DrawString(stableTitleX, animatedDetailRect.y + 1, u8"선택 대기", COLOR_WHITE);
+                    RenderWrappedText(screen, animatedDetailRect.x + 3, animatedDetailRect.y + 3, animatedDetailRect.width - 6, u8"카드팩 위에 마우스를 올리거나 클릭하면 상세 정보가 펼쳐집니다.", COLOR_WHITE);
                 }
 
-                ButtonUI btnConfirm(screen.GetCenterX() - 12, detailRect.y + detailRect.height + 1, 24, 3, u8"이 카드팩으로 시작", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnConfirm(screen.GetCenterX() - 12, screen.GetHeight() - 6, 24, 3, u8"이 카드팩으로 시작", COLOR_WHITE, COLOR_YELLOW);
                 if (run.selectedStarterPackIndex >= 0) {
                     btnConfirm.Update(input);
                 }
                 btnConfirm.Render(screen);
                 if (run.selectedStarterPackIndex < 0) {
-                    screen.DrawString(screen.GetCenterX() - 12, detailRect.y + detailRect.height - 1, u8"먼저 카드팩을 선택하세요.", FOREGROUND_INTENSITY);
+                    screen.DrawString(screen.GetCenterX() - 13, screen.GetHeight() - 8, u8"먼저 카드팩을 선택하세요.", FOREGROUND_INTENSITY);
                 }
                 else if (btnConfirm.IsClicked()) {
                     ApplyStarterPack(run, starterPacks[static_cast<size_t>(run.selectedStarterPackIndex)]);
@@ -1174,7 +1445,6 @@ int main() {
             }
             else {
                 const Rect roomPanel = { 18, 8, screen.GetWidth() - 36, screen.GetHeight() - 18 };
-                RenderFrameBox(screen, roomPanel, COLOR_WHITE);
 
                 string roomTitle;
                 string roomBody;
@@ -1248,15 +1518,19 @@ int main() {
                     }
                 }
 
-                RenderPanelTitle(screen, roomPanel, roomTitle, COLOR_YELLOW);
-                const Rect artRect = { roomPanel.x + 3, roomPanel.y + 5, 22, roomPanel.height - 11 };
-                RenderFrameBox(screen, artRect, FOREGROUND_INTENSITY);
-                RenderAsciiArtLines(screen, artRect, artLines, COLOR_WHITE);
-                RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 6, roomPanel.width - 32, roomBody, COLOR_WHITE);
+                const bool showRoomFrame = (run.currentNodeId < 0) || !IsBattleNodeType(run.currentRoomType);
+                if (showRoomFrame) {
+                    RenderFrameBox(screen, roomPanel, COLOR_WHITE);
+                    RenderPanelTitle(screen, roomPanel, roomTitle, COLOR_YELLOW);
+                    const Rect artRect = { roomPanel.x + 3, roomPanel.y + 5, 22, roomPanel.height - 11 };
+                    RenderFrameBox(screen, artRect, FOREGROUND_INTENSITY);
+                    RenderAsciiArtLines(screen, artRect, artLines, COLOR_WHITE);
+                    RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 6, roomPanel.width - 32, roomBody, COLOR_WHITE);
 
-                screen.DrawString(roomPanel.x + 28, roomPanel.y + 13, string(u8"시드 ") + to_string(run.seed), FOREGROUND_INTENSITY);
-                screen.DrawString(roomPanel.x + 28, roomPanel.y + 15, string(u8"유물: ") + BuildRelicListText(run.relics), FOREGROUND_INTENSITY);
-                screen.DrawString(roomPanel.x + 28, roomPanel.y + 17, string(u8"포션: ") + BuildPotionListText(run.potions), FOREGROUND_INTENSITY);
+                    screen.DrawString(roomPanel.x + 28, roomPanel.y + 13, string(u8"시드 ") + to_string(run.seed), FOREGROUND_INTENSITY);
+                    screen.DrawString(roomPanel.x + 28, roomPanel.y + 15, string(u8"유물: ") + BuildRelicListText(run.relics), FOREGROUND_INTENSITY);
+                    screen.DrawString(roomPanel.x + 28, roomPanel.y + 17, string(u8"포션: ") + BuildPotionListText(run.potions), FOREGROUND_INTENSITY);
+                }
 
                 if (run.currentNodeId < 0) {
                     ButtonUI btnOpenMap(roomPanel.x + 6, roomPanel.y + roomPanel.height - 6, 18, 3, u8"지도 열기", COLOR_WHITE, COLOR_YELLOW);
@@ -1303,7 +1577,6 @@ int main() {
                                 run.currentRoomSummaryTitle = u8"승리";
                                 run.currentRoomSummaryText = u8"보스를 쓰러뜨렸습니다.";
                                 ResolveCurrentNode(run, RunNodeResultType::Victory);
-                                resetCombatPresentation();
                                 finishRunToEnding(true, "");
                                 return;
                             }
@@ -1335,9 +1608,104 @@ int main() {
                             }
                             run.currentRoomResult = RunNodeResultType::Defeat;
                             run.roomResolved = true;
-                            resetCombatPresentation();
                             finishRunToEnding(false, to_string(run.currentFloor) + (run.currentRoomType == RunNodeType::Boss ? string(u8"층 보스전에서 쓰러졌습니다.") : string(u8"층 전투에서 쓰러졌습니다.")));
                         };
+
+                        const int combatPlayerX = screen.GetWidth() * 22 / 100;
+                        const int combatEnemyX = screen.GetWidth() * 78 / 100;
+                        const int combatBaselineY = screen.GetHeight() - 22;
+                        const int combatPlayerY = combatBaselineY;
+                        const int combatEnemyY = combatBaselineY;
+                        const Rect drawPileRect = { 2, screen.GetHeight() - 10, 10, 4 };
+                        const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 10, 10, 4 };
+                        const Rect energyRect = { 14, screen.GetHeight() - 10, 16, 4 };
+                        Rect intentRect = { combatEnemyX - 11, 8, 24, 5 };
+
+                        auto renderDeadPlayerPose = [&]() {
+                            static const std::vector<std::string> deadLines = BuildDeathPlayerArt();
+                            RenderAnchoredArt(screen, combatPlayerX, combatPlayerY, deadLines, COLOR_RED);
+                        };
+
+                        if (run.overlay == RunOverlayType::Ending) {
+                            if (endingStage == EndingStage::DefeatReveal || endingStage == EndingStage::DefeatRecord) {
+                                if (enemyEntityUi) {
+                                    enemyEntityUi->Render(screen);
+                                }
+                                renderDeadPlayerPose();
+                            }
+                            else {
+                                if (playerEntityUi) {
+                                    playerEntityUi->Render(screen);
+                                }
+                            }
+
+                            if (endingStage == EndingStage::DefeatReveal) {
+                                const Rect deathRect = { screen.GetCenterX() - 28, 8, 56, 6 };
+                                RenderFrameBox(screen, deathRect, COLOR_RED);
+                                screen.DrawString(
+                                    deathRect.x + 2,
+                                    deathRect.y + 2,
+                                    TextLayout::AlignToWidth(TextLayout::Utf8ToWide(endingFlavorText), deathRect.width - 4, TextLayout::HorizontalAlign::Center),
+                                    COLOR_RED);
+
+                                ButtonUI btnContinue(screen.GetCenterX() - 8, screen.GetHeight() - 8, 16, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
+                                btnContinue.Update(input);
+                                btnContinue.Render(screen);
+                                if (btnContinue.IsClicked()) {
+                                    endingStage = EndingStage::DefeatRecord;
+                                }
+                            }
+                            else if (endingStage == EndingStage::DefeatRecord) {
+                                const Rect recordRect = { screen.GetCenterX() - 34, 9, 68, 16 };
+                                RenderFrameBox(screen, recordRect, COLOR_RED);
+                                RenderPanelTitle(screen, recordRect, u8"패배 기록", COLOR_RED);
+                                const std::vector<std::string> detailLines = BuildRunRecordDetailLines(endingRecord);
+                                RenderTextBlock(
+                                    screen,
+                                    { recordRect.x + 3, recordRect.y + 3, recordRect.width - 6, recordRect.height - 7 },
+                                    detailLines,
+                                    COLOR_WHITE);
+
+                                ButtonUI btnMenu(screen.GetCenterX() - 9, screen.GetHeight() - 8, 18, 3, u8"메인 메뉴", COLOR_WHITE, COLOR_YELLOW);
+                                btnMenu.Update(input);
+                                btnMenu.Render(screen);
+                                if (btnMenu.IsClicked()) {
+                                    transitionToTitle();
+                                }
+                            }
+                            else if (endingStage == EndingStage::VictoryReveal) {
+                                endingRevealProgress = (std::min)(1.0f, endingRevealProgress + (deltaTimeSec * 1.6f));
+                                const int endX = screen.GetWidth() - 20;
+                                const int startX = screen.GetWidth() + 6;
+                                const Rect slideButton = { LerpInt(startX, endX, EaseOutCubic(endingRevealProgress)), screen.GetHeight() - 8, 16, 3 };
+                                ButtonUI btnAdvance(slideButton.x, slideButton.y, slideButton.width, slideButton.height, u8"진행", COLOR_WHITE, COLOR_YELLOW);
+                                if (endingRevealProgress >= 1.0f) {
+                                    btnAdvance.Update(input);
+                                }
+                                btnAdvance.Render(screen);
+                                if (btnAdvance.IsClicked()) {
+                                    endingStage = EndingStage::VictorySummary;
+                                }
+                            }
+                            else if (endingStage == EndingStage::VictorySummary) {
+                                screen.DrawString(
+                                    screen.GetCenterX() - 14,
+                                    7,
+                                    TextLayout::AlignToWidth(TextLayout::Utf8ToWide(u8"승리!"), 28, TextLayout::HorizontalAlign::Center),
+                                    COLOR_GREEN);
+                                const Rect victoryRect = { screen.GetCenterX() - 26, 10, 52, 6 };
+                                RenderFrameBox(screen, victoryRect, COLOR_GREEN);
+                                RenderWrappedText(screen, victoryRect.x + 3, victoryRect.y + 2, victoryRect.width - 6, u8"첨탑의 정점에 도달했습니다.\n다음 연출 자리는 비워두었습니다.", COLOR_WHITE);
+
+                                ButtonUI btnContinue(screen.GetCenterX() - 8, screen.GetHeight() - 8, 16, 3, u8"진행", COLOR_WHITE, COLOR_YELLOW);
+                                btnContinue.Update(input);
+                                btnContinue.Render(screen);
+                                if (btnContinue.IsClicked()) {
+                                    transitionToTitle();
+                                }
+                            }
+                            break;
+                        }
 
                         if (!run.roomResolved) {
                             const int roomKey = (run.currentNodeId >= 0) ? run.currentNodeId : (-100 - static_cast<int>(run.currentRoomType));
@@ -1361,22 +1729,28 @@ int main() {
                                 }
                                 combatSystem->StartBattle(run.deck);
 
-                                playerEntityUi = std::make_unique<EntityUI>(roomPanel.x + 28, roomPanel.y + 20, &run.player, true);
-                                enemyEntityUi = std::make_unique<EntityUI>(roomPanel.x + roomPanel.width - 50, roomPanel.y + 18, &run.battleRoom.enemy, false);
+                                playerEntityUi = std::make_unique<EntityUI>(combatPlayerX, combatPlayerY, &run.player, true);
+                                enemyEntityUi = std::make_unique<EntityUI>(combatEnemyX, combatEnemyY, &run.battleRoom.enemy, false);
                                 activeCombatRoomKey = roomKey;
                                 queueRoomBgm();
                             }
 
-                            const Rect drawPileRect = { roomPanel.x + 4, roomPanel.y + roomPanel.height - 8, 10, 4 };
-                            const Rect discardPileRect = { roomPanel.x + roomPanel.width - 14, roomPanel.y + roomPanel.height - 8, 10, 4 };
-                            const Rect energyRect = { roomPanel.x + 16, roomPanel.y + roomPanel.height - 8, 16, 4 };
-                            const Rect intentRect = { roomPanel.x + roomPanel.width - 36, roomPanel.y + 8, 22, 5 };
+                            if (playerEntityUi) {
+                                playerEntityUi->SetAnchorBottomCenter(combatPlayerX, combatPlayerY);
+                            }
+                            if (enemyEntityUi) {
+                                enemyEntityUi->SetAnchorBottomCenter(combatEnemyX, combatEnemyY);
+                                intentRect.x = enemyEntityUi->GetArtCenterX() - (intentRect.width / 2);
+                                intentRect.y = enemyEntityUi->GetArtTopY() - intentRect.height - 3;
+                                intentRect.x = (std::max)(2, (std::min)(screen.GetWidth() - intentRect.width - 2, intentRect.x));
+                                intentRect.y = (std::max)(5, intentRect.y);
+                            }
 
                             vector<ButtonUI> potionButtons;
                             for (size_t potionIndex = 0; potionIndex < run.potions.size(); ++potionIndex) {
                                 potionButtons.emplace_back(
-                                    roomPanel.x + 28 + static_cast<int>(potionIndex) * 18,
-                                    roomPanel.y + roomPanel.height - 8,
+                                    hudPotionStartX + static_cast<int>(potionIndex) * 16,
+                                    0,
                                     16,
                                     3,
                                     run.potions[potionIndex].name,
@@ -1389,8 +1763,8 @@ int main() {
                             const int overlapChars = cardCount >= 5 ? 2 : (cardCount >= 2 ? 1 : 0);
                             const int cardSpacing = 28 - overlapChars;
                             const int totalHandWidth = cardCount > 0 ? (28 + (cardCount - 1) * cardSpacing) : 0;
-                            const int handStartX = roomPanel.x + (roomPanel.width - totalHandWidth) / 2;
-                            const int handBaseY = roomPanel.y + roomPanel.height - 18;
+                            const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
+                            const int handBaseY = screen.GetHeight() - 18;
 
                             vector<CardUI> handCards;
                             handCards.reserve(hand.size());
@@ -1694,18 +2068,16 @@ int main() {
                                     rewardButtonY += 5;
                                 }
 
-                                if (!HasBattleRewardItemsRemaining(rewards)) {
-                                    RenderWrappedText(screen, rewardRect.x + 4, rewardRect.y + rewardRect.height - 8, rewardRect.width - 8, rewards.message, COLOR_WHITE);
-                                    ButtonUI btnContinue(rewardRect.x + rewardRect.width / 2 - 8, rewardRect.y + rewardRect.height - 4, 16, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
-                                    if (run.overlay == RunOverlayType::None) {
-                                        btnContinue.Update(input);
-                                    }
-                                    btnContinue.Render(screen);
-                                    if (btnContinue.IsClicked()) {
-                                        run.currentRoomSummaryTitle = rewards.title;
-                                        run.currentRoomSummaryText = rewards.message;
-                                        queueMapReturn();
-                                    }
+                                RenderWrappedText(screen, rewardRect.x + 4, rewardRect.y + rewardRect.height - 9, rewardRect.width - 8, rewards.message, COLOR_WHITE);
+                                ButtonUI btnSkipRewards(rewardRect.x + rewardRect.width / 2 - 10, rewardRect.y + rewardRect.height - 4, 20, 3, u8"보상 넘기기", COLOR_WHITE, COLOR_YELLOW);
+                                if (run.overlay == RunOverlayType::None) {
+                                    btnSkipRewards.Update(input);
+                                }
+                                btnSkipRewards.Render(screen);
+                                if (btnSkipRewards.IsClicked()) {
+                                    run.currentRoomSummaryTitle = rewards.title;
+                                    run.currentRoomSummaryText = rewards.message;
+                                    queueMapReturn();
                                 }
                             }
                         }
@@ -1958,20 +2330,25 @@ int main() {
                             }
                         }
                         else {
-                            const int buttonWidth = (std::max)(36, roomPanel.width / 3);
-                            const int buttonHeight = 4;
-                            const int buttonX = roomPanel.x + roomPanel.width - buttonWidth - 8;
-                            const int buttonStartY = roomPanel.y + roomPanel.height - 6 - static_cast<int>(run.eventRoom.choices.size()) * (buttonHeight + 1);
+                            const int buttonWidth = (std::max)(30, roomPanel.width / 3 - 8);
+                            const int buttonHeight = 5;
+                            const int buttonX = roomPanel.x + roomPanel.width - buttonWidth - 10;
+                            const int buttonStartY = roomPanel.y + roomPanel.height - 7 - static_cast<int>(run.eventRoom.choices.size()) * (buttonHeight + 1);
                             for (size_t choiceIndex = 0; choiceIndex < run.eventRoom.choices.size(); ++choiceIndex) {
                                 EventChoiceState& choice = run.eventRoom.choices[choiceIndex];
                                 const int buttonY = buttonStartY + static_cast<int>(choiceIndex) * (buttonHeight + 1);
-                                ButtonUI btnChoice(buttonX, buttonY, buttonWidth, buttonHeight, BuildEventChoiceButtonText(choice), COLOR_WHITE, COLOR_YELLOW);
-                                if (run.overlay == RunOverlayType::None) {
-                                    btnChoice.Update(input);
-                                }
-                                btnChoice.Render(screen);
-
-                                if (btnChoice.IsClicked()) {
+                                const Rect buttonRect = { buttonX, buttonY, buttonWidth, buttonHeight };
+                                if (RenderWrappedActionButton(
+                                    screen,
+                                    input,
+                                    buttonRect,
+                                    mouseX,
+                                    mouseY,
+                                    { BuildEventChoiceButtonText(choice) },
+                                    COLOR_WHITE,
+                                    COLOR_YELLOW,
+                                    run.overlay == RunOverlayType::None,
+                                    TextLayout::HorizontalAlign::Center)) {
                                     if (choice.goldDelta < 0 && run.gold < -choice.goldDelta) {
                                         run.eventRoom.noticeText = u8"골드가 부족하여 이 선택을 진행할 수 없습니다.";
                                     }
@@ -2015,8 +2392,13 @@ int main() {
                 }
             }
 
+            if (run.overlay != RunOverlayType::Map) {
+                mapRenderer.ClearViewport();
+            }
+
             if (run.overlay == RunOverlayType::Map) {
                 const Rect overlayRect = { 6, 5, screen.GetWidth() - 12, screen.GetHeight() - 10 };
+                const Rect mapViewport = { overlayRect.x + 2, overlayRect.y + 3, overlayRect.width - 4, overlayRect.height - 7 };
                 RenderFrameBox(screen, overlayRect, COLOR_YELLOW);
                 RenderPanelTitle(screen, overlayRect, u8"지도", COLOR_YELLOW);
                 screen.DrawString(overlayRect.x + 3, overlayRect.y + 2, u8"M 또는 ESC로 닫기 / 휠로 스크롤 / 클릭으로 진입", FOREGROUND_INTENSITY);
@@ -2031,6 +2413,7 @@ int main() {
                     }
                 }
 
+                mapRenderer.SetViewport(mapViewport.x, mapViewport.y, mapViewport.width, mapViewport.height);
                 mapRenderer.Update(input);
                 mapRenderer.Render(screen);
 
@@ -2071,16 +2454,16 @@ int main() {
                 }
             }
             else if (run.overlay == RunOverlayType::Settings) {
-                const Rect popup = { 18, 6, screen.GetWidth() - 36, screen.GetHeight() - 12 };
+                const Rect popup = { screen.GetCenterX() - 46, screen.GetCenterY() - 12, 92, 25 };
                 RenderFrameBox(screen, popup, COLOR_YELLOW);
                 RenderPanelTitle(screen, popup, u8"인게임 설정", COLOR_YELLOW);
 
                 const int contentLeft = popup.x + 4;
                 const int contentWidth = popup.width - 8;
-                Rect masterTrack = { contentLeft + 14, popup.y + 5, contentWidth - 18, 1 };
-                Rect bgmTrack = { contentLeft + 14, popup.y + 7, contentWidth - 18, 1 };
-                Rect sfxTrack = { contentLeft + 14, popup.y + 9, contentWidth - 18, 1 };
-                Rect speedTrack = { contentLeft + 14, popup.y + 11, contentWidth - 18, 1 };
+                Rect masterTrack = { contentLeft + 12, popup.y + 5, contentWidth - 22, 1 };
+                Rect bgmTrack = { contentLeft + 12, popup.y + 7, contentWidth - 22, 1 };
+                Rect sfxTrack = { contentLeft + 12, popup.y + 9, contentWidth - 22, 1 };
+                Rect speedTrack = { contentLeft + 12, popup.y + 11, contentWidth - 22, 1 };
 
                 UpdateSliderDrag(input, mouseX, 0, masterTrack, settings.masterVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 1, bgmTrack, settings.bgmVolume, activeSliderId);
@@ -2092,10 +2475,10 @@ int main() {
                 RenderSlider(screen, contentLeft, popup.y + 9, contentWidth, u8"SFX", settings.sfxVolume, activeSliderId == 2);
                 RenderSlider(screen, contentLeft, popup.y + 11, contentWidth, u8"속도", settings.gameSpeedPercent, activeSliderId == 3);
 
-                ButtonUI btnToggleDebug(contentLeft, popup.y + 14, 22, 3, string(u8"디버그 ") + (settings.debugMode ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnBack(contentLeft, popup.y + popup.height - 5, 16, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnAbandon(contentLeft + 20, popup.y + popup.height - 5, 18, 3, u8"전투 포기", COLOR_WHITE, COLOR_YELLOW);
-                ButtonUI btnSaveExit(contentLeft + 42, popup.y + popup.height - 5, 20, 3, u8"저장 후 종료", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnToggleDebug(contentLeft, popup.y + 15, 18, 3, string(u8"디버그 ") + (settings.debugMode ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnBack(contentLeft, popup.y + popup.height - 4, 16, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnAbandon(contentLeft + 18, popup.y + popup.height - 4, 18, 3, u8"전투 포기", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnSaveExit(contentLeft + 38, popup.y + popup.height - 4, 20, 3, u8"저장 후 종료", COLOR_WHITE, COLOR_YELLOW);
                 btnToggleDebug.Update(input);
                 btnBack.Update(input);
                 btnAbandon.Update(input);
@@ -2104,7 +2487,7 @@ int main() {
                 btnBack.Render(screen);
                 btnAbandon.Render(screen);
                 btnSaveExit.Render(screen);
-                screen.DrawString(contentLeft + 26, popup.y + 14, u8"키 설정: 틀만 준비", FOREGROUND_INTENSITY);
+                screen.DrawString(contentLeft + 22, popup.y + 15, u8"키 설정: 틀만 준비", FOREGROUND_INTENSITY);
 
                 if (btnToggleDebug.IsClicked()) { settings.debugMode = !settings.debugMode; settingsDirty = true; }
                 if (btnBack.IsClicked()) {
@@ -2161,17 +2544,49 @@ int main() {
                     run.overlay = RunOverlayType::Settings;
                 }
             }
-            else if (run.overlay == RunOverlayType::Ending) {
-                const Rect panel = { screen.GetCenterX() - 28, screen.GetCenterY() - 8, 56, 16 };
-                RenderFrameBox(screen, panel, endingWon ? COLOR_GREEN : COLOR_RED);
-                RenderPanelTitle(screen, panel, endingTitle, endingWon ? COLOR_GREEN : COLOR_RED);
-                RenderWrappedText(screen, panel.x + 4, panel.y + 5, panel.width - 8, endingBody, COLOR_WHITE);
-
-                ButtonUI btnReturn(panel.x + panel.width / 2 - 8, panel.y + panel.height - 4, 16, 3, u8"타이틀로", COLOR_WHITE, COLOR_YELLOW);
-                btnReturn.Update(input);
-                btnReturn.Render(screen);
-                if (btnReturn.IsClicked()) {
-                    transitionToTitle();
+            else if (run.overlay == RunOverlayType::Ending && !IsBattleNodeType(run.currentRoomType)) {
+                if (endingStage == EndingStage::DefeatReveal) {
+                    const Rect panel = { screen.GetCenterX() - 28, screen.GetCenterY() - 5, 56, 6 };
+                    RenderFrameBox(screen, panel, COLOR_RED);
+                    screen.DrawString(
+                        panel.x + 2,
+                        panel.y + 2,
+                        TextLayout::AlignToWidth(TextLayout::Utf8ToWide(endingFlavorText), panel.width - 4, TextLayout::HorizontalAlign::Center),
+                        COLOR_RED);
+                    ButtonUI btnContinue(screen.GetCenterX() - 8, screen.GetCenterY() + 4, 16, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
+                    btnContinue.Update(input);
+                    btnContinue.Render(screen);
+                    if (btnContinue.IsClicked()) {
+                        endingStage = EndingStage::DefeatRecord;
+                    }
+                }
+                else if (endingStage == EndingStage::DefeatRecord) {
+                    const Rect recordRect = { screen.GetCenterX() - 34, screen.GetCenterY() - 8, 68, 16 };
+                    RenderFrameBox(screen, recordRect, COLOR_RED);
+                    RenderPanelTitle(screen, recordRect, u8"패배 기록", COLOR_RED);
+                    RenderTextBlock(
+                        screen,
+                        { recordRect.x + 3, recordRect.y + 3, recordRect.width - 6, recordRect.height - 7 },
+                        BuildRunRecordDetailLines(endingRecord),
+                        COLOR_WHITE);
+                    ButtonUI btnMenu(screen.GetCenterX() - 9, screen.GetCenterY() + 9, 18, 3, u8"메인 메뉴", COLOR_WHITE, COLOR_YELLOW);
+                    btnMenu.Update(input);
+                    btnMenu.Render(screen);
+                    if (btnMenu.IsClicked()) {
+                        transitionToTitle();
+                    }
+                }
+                else {
+                    const Rect panel = { screen.GetCenterX() - 24, screen.GetCenterY() - 5, 48, 8 };
+                    RenderFrameBox(screen, panel, COLOR_GREEN);
+                    RenderPanelTitle(screen, panel, u8"승리!", COLOR_GREEN);
+                    RenderWrappedText(screen, panel.x + 3, panel.y + 3, panel.width - 6, u8"막의 끝에 도달했습니다.", COLOR_WHITE);
+                    ButtonUI btnContinue(screen.GetCenterX() - 8, screen.GetCenterY() + 5, 16, 3, u8"진행", COLOR_WHITE, COLOR_YELLOW);
+                    btnContinue.Update(input);
+                    btnContinue.Render(screen);
+                    if (btnContinue.IsClicked()) {
+                        transitionToTitle();
+                    }
                 }
             }
 
@@ -2188,17 +2603,7 @@ int main() {
             screen.DrawString(36, debugBaseY, seedText, FOREGROUND_INTENSITY);
         }
         else if (appState == AppState::Ending) {
-            const Rect panel = { screen.GetCenterX() - 28, screen.GetCenterY() - 8, 56, 16 };
-            RenderFrameBox(screen, panel, endingWon ? COLOR_GREEN : COLOR_RED);
-            RenderPanelTitle(screen, panel, endingTitle, endingWon ? COLOR_GREEN : COLOR_RED);
-            RenderWrappedText(screen, panel.x + 4, panel.y + 5, panel.width - 8, endingBody, COLOR_WHITE);
-
-            ButtonUI btnReturn(panel.x + panel.width / 2 - 8, panel.y + panel.height - 4, 16, 3, u8"타이틀로", COLOR_WHITE, COLOR_YELLOW);
-            btnReturn.Update(input);
-            btnReturn.Render(screen);
-            if (btnReturn.IsClicked()) {
-                transitionToTitle();
-            }
+            transitionToTitle();
         }
 
         screen.DrawChar(mouseX, mouseY, '+', COLOR_GREEN);

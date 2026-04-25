@@ -17,6 +17,7 @@ private:
 public:
     // 데이터의 포인터를 주입받아 실시간으로 상태를 반영함
     ProgressBarUI(int x, int y, int width, int* curr, int* max, const std::string& prefix, WORD frameCol, WORD fillCol);
+    void SetBarWidth(int newWidth) { width = newWidth; }
 
     bool Update(InputManager& input) override;
     void Render(ScreenManager& screen) override;

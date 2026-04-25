@@ -1,10 +1,11 @@
-// -----------------------------------------------------------------------------
+﻿// -----------------------------------------------------------------------------
 // @file       RunState.cpp
 // -----------------------------------------------------------------------------
 #include "RunState.h"
 #include "ScreenManager.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -418,38 +419,246 @@ void InitializeEventRoom(RunStateData& run) {
     }
 }
 
-RunNodeType PickNodeTypeForFloor(int floor, int regularFloorCount, std::mt19937& rng) {
-    if (floor == regularFloorCount) {
-        std::uniform_int_distribution<int> lateFloorDist(0, 2);
-        switch (lateFloorDist(rng)) {
-        case 0: return RunNodeType::Battle;
-        case 1: return RunNodeType::Elite;
-        default: return RunNodeType::Rest;
+struct LaneSegment {
+    int fromLane = 0;
+    int toLane = 0;
+};
+
+struct LaneFlowState {
+    int lane = 0;
+    int lastDelta = 0;
+    int straightStreak = 0;
+};
+
+struct LaneCandidate {
+    int nextLane = 0;
+    int delta = 0;
+    int weight = 0;
+};
+
+bool HasDuplicateSegment(const std::vector<LaneSegment>& segments, int fromLane, int toLane) {
+    for (const LaneSegment& segment : segments) {
+        if (segment.fromLane == fromLane && segment.toLane == toLane) {
+            return true;
         }
+    }
+    return false;
+}
+
+bool WouldCrossExistingSegment(const std::vector<LaneSegment>& segments, int fromLane, int toLane) {
+    for (const LaneSegment& segment : segments) {
+        const bool crosses =
+            (fromLane < segment.fromLane && toLane > segment.toLane) ||
+            (fromLane > segment.fromLane && toLane < segment.toLane);
+        if (crosses) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int CountIncomingSegments(const std::vector<LaneSegment>& segments, int toLane) {
+    int count = 0;
+    for (const LaneSegment& segment : segments) {
+        if (segment.toLane == toLane) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+int CountOutgoingSegments(const std::vector<LaneSegment>& segments, int fromLane) {
+    int count = 0;
+    for (const LaneSegment& segment : segments) {
+        if (segment.fromLane == fromLane) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+int CountUniqueTargetLanes(const std::vector<LaneSegment>& segments) {
+    std::array<bool, 7> used = {};
+    int count = 0;
+    for (const LaneSegment& segment : segments) {
+        if (!used[static_cast<size_t>(segment.toLane)]) {
+            used[static_cast<size_t>(segment.toLane)] = true;
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool CreatesWideConvergence(const std::vector<LaneSegment>& segments, int fromLane, int toLane) {
+    for (const LaneSegment& segment : segments) {
+        if (segment.toLane != toLane) {
+            continue;
+        }
+
+        if (std::abs(segment.fromLane - fromLane) >= 2) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int PickWeightedLane(const std::vector<LaneCandidate>& candidates, std::mt19937& rng) {
+    if (candidates.empty()) {
+        return 0;
+    }
+
+    int totalWeight = 0;
+    for (const LaneCandidate& candidate : candidates) {
+        totalWeight += candidate.weight;
+    }
+
+    if (totalWeight <= 0) {
+        return candidates.front().nextLane;
+    }
+
+    std::uniform_int_distribution<int> pickDist(1, totalWeight);
+    int pickedWeight = pickDist(rng);
+    for (const LaneCandidate& candidate : candidates) {
+        pickedWeight -= candidate.weight;
+        if (pickedWeight <= 0) {
+            return candidate.nextLane;
+        }
+    }
+
+    return candidates.back().nextLane;
+}
+
+std::vector<LaneCandidate> BuildLaneCandidates(
+    const LaneFlowState& state,
+    const std::vector<LaneSegment>& floorSegments,
+    bool preferFreshTarget,
+    bool allowCrowdedTarget,
+    bool allowWideConvergence) {
+    std::vector<LaneCandidate> candidates;
+
+    for (int delta = -1; delta <= 1; ++delta) {
+        const int nextLane = state.lane + delta;
+        if (nextLane < 0 || nextLane >= 7) {
+            continue;
+        }
+        if (WouldCrossExistingSegment(floorSegments, state.lane, nextLane)) {
+            continue;
+        }
+        if (HasDuplicateSegment(floorSegments, state.lane, nextLane)) {
+            continue;
+        }
+        if (!allowCrowdedTarget && CountIncomingSegments(floorSegments, nextLane) >= 2) {
+            continue;
+        }
+        if (!allowWideConvergence && CreatesWideConvergence(floorSegments, state.lane, nextLane)) {
+            continue;
+        }
+
+        int weight = 0;
+        switch (std::abs(delta)) {
+        case 0: weight = 18; break;
+        case 1: weight = 28; break;
+        case 2: weight = 6; break;
+        default: break;
+        }
+
+        if (state.straightStreak >= 2 && delta == 0) {
+            weight = 4;
+        }
+        if (state.straightStreak >= 1 && std::abs(delta) == 1) {
+            weight += 10;
+        }
+        if (state.lastDelta == 0 && std::abs(delta) == 1) {
+            weight += 5;
+        }
+        if (state.lastDelta != 0 && delta == state.lastDelta && std::abs(delta) == 1) {
+            weight += 5;
+        }
+        if (std::abs(state.lastDelta) == 2 && std::abs(delta) == 2) {
+            weight = (std::max)(1, weight / 3);
+        }
+
+        const int incomingCount = CountIncomingSegments(floorSegments, nextLane);
+        if (preferFreshTarget) {
+            if (incomingCount == 0) {
+                weight += 12;
+            }
+            else {
+                weight = (std::max)(1, weight / 3);
+            }
+        }
+        else if (incomingCount > 0) {
+            weight += 6;
+        }
+
+        candidates.push_back({ nextLane, delta, weight });
+    }
+
+    return candidates;
+}
+
+int ChooseTargetNodeCount(int floor, int regularFloorCount, int currentNodeCount, std::mt19937& rng) {
+    std::array<int, 5> offsets = { -1, 0, 0, 0, 1 };
+    std::uniform_int_distribution<int> offsetDist(0, static_cast<int>(offsets.size()) - 1);
+    const int offset = offsets[static_cast<size_t>(offsetDist(rng))];
+
+    int target = currentNodeCount + offset;
+    if (floor <= 2) {
+        target = (std::max)(target, 4);
+    }
+    if (floor >= regularFloorCount - 2) {
+        target = (std::min)(target, 4);
+    }
+
+    target = (std::max)(3, (std::min)(5, target));
+    return target;
+}
+
+RunNodeType PickNodeTypeForFloor(int floor, int regularFloorCount, std::mt19937& rng) {
+    if (floor <= 1) {
+        return RunNodeType::Battle;
+    }
+    if (floor == regularFloorCount - 1) {
+        return RunNodeType::Treasure;
+    }
+    if (floor == regularFloorCount) {
+        return RunNodeType::Rest;
     }
 
     std::uniform_int_distribution<int> dist(0, 99);
     const int roll = dist(rng);
 
-    if (floor == 1) {
+    if (floor <= 3) {
         if (roll < 55) return RunNodeType::Battle;
-        if (roll < 75) return RunNodeType::Event;
-        return RunNodeType::Treasure;
+        if (roll < 78) return RunNodeType::Event;
+        return RunNodeType::Shop;
     }
 
-    if (roll < 35) return RunNodeType::Battle;
-    if (roll < 50) return RunNodeType::Event;
-    if (roll < 62) return RunNodeType::Shop;
+    if (floor <= 5) {
+        if (roll < 38) return RunNodeType::Battle;
+        if (roll < 58) return RunNodeType::Event;
+        if (roll < 74) return RunNodeType::Shop;
+        if (roll < 88) return RunNodeType::Treasure;
+        return RunNodeType::Rest;
+    }
+
+    if (roll < 30) return RunNodeType::Battle;
+    if (roll < 47) return RunNodeType::Event;
+    if (roll < 60) return RunNodeType::Shop;
     if (roll < 74) return RunNodeType::Rest;
-    if (roll < 86) return RunNodeType::Treasure;
+    if (roll < 88) return RunNodeType::Treasure;
     return RunNodeType::Elite;
 }
 
 void GenerateRunMap(RunStateData& run, int screenWidth, int screenHeight) {
     std::mt19937 rng(run.seed);
 
-    const int regularFloorCount = 5 + static_cast<int>(rng() % 4);
-    run.totalFloors = regularFloorCount + 1;
+    constexpr int kLaneCount = 7;
+    constexpr int kRegularFloorCount = 9;
+    constexpr int kStartNodeCount = 4;
+    const std::array<int, kStartNodeCount> startLanes = { 0, 2, 4, 6 };
+
+    run.totalFloors = kRegularFloorCount + 1;
     run.currentFloor = 0;
     run.currentNodeId = -1;
     run.nodes.clear();
@@ -457,32 +666,167 @@ void GenerateRunMap(RunStateData& run, int screenWidth, int screenHeight) {
 
     std::vector<std::vector<int>> floorNodeIds;
     floorNodeIds.resize(static_cast<size_t>(run.totalFloors + 1));
+    std::vector<std::vector<int>> nodeIdByFloorLane(static_cast<size_t>(kRegularFloorCount + 1), std::vector<int>(kLaneCount, -1));
+    std::vector<std::vector<bool>> occupied(static_cast<size_t>(kRegularFloorCount + 1), std::vector<bool>(kLaneCount, false));
+    std::vector<std::vector<LaneSegment>> floorSegments(static_cast<size_t>(kRegularFloorCount));
 
     int nextId = 0;
-    const int bottomY = screenHeight - 14;
-    const int topY = 10;
-    const int usableHeight = (bottomY - topY);
-    const int floorSpacing = (run.totalFloors > 1) ? (usableHeight / run.totalFloors) : usableHeight;
+    const int horizontalMargin = (std::max)(26, (screenWidth * 15) / 100);
+    const int centralInset = (std::max)(8, (screenWidth * 6) / 100);
+    const int minLaneGap = 8;
+    const int floorSpacing = 19;
+    const int bottomY = screenHeight - 12;
+    const int minX = horizontalMargin;
+    const int maxX = screenWidth - horizontalMargin - 1;
+    const int generationMinX = minX + centralInset;
+    const int generationMaxX = maxX - centralInset;
+    const float laneSpacing = static_cast<float>(generationMaxX - generationMinX) / static_cast<float>(kLaneCount - 1);
+    std::uniform_int_distribution<int> xJitterDist(-4, 4);
+    std::uniform_int_distribution<int> yJitterDist(-2, 2);
 
-    for (int floor = 1; floor <= regularFloorCount; ++floor) {
-        const int nodeCount = (floor == 1 || floor == regularFloorCount) ? 2 : 3;
-        const int leftBound = 18;
-        const int rightBound = screenWidth - 18;
-        const int laneWidth = (rightBound - leftBound) / (nodeCount + 1);
+    std::vector<LaneFlowState> activeNodes;
+    activeNodes.reserve(kStartNodeCount);
+    for (int lane : startLanes) {
+        activeNodes.push_back({ lane, 0, 0 });
+        occupied[1][lane] = true;
+    }
+
+    for (int floor = 1; floor < kRegularFloorCount; ++floor) {
+        std::vector<LaneSegment>& segments = floorSegments[static_cast<size_t>(floor)];
+        const int targetNodeCount = ChooseTargetNodeCount(floor + 1, kRegularFloorCount, static_cast<int>(activeNodes.size()), rng);
+
+        std::vector<int> processOrder(activeNodes.size(), 0);
+        for (int index = 0; index < static_cast<int>(activeNodes.size()); ++index) {
+            processOrder[static_cast<size_t>(index)] = index;
+            occupied[static_cast<size_t>(floor)][activeNodes[static_cast<size_t>(index)].lane] = true;
+        }
+        std::shuffle(processOrder.begin(), processOrder.end(), rng);
+
+        std::array<LaneFlowState, kLaneCount> nextStates = {};
+        std::array<bool, kLaneCount> nextStateExists = {};
+
+        auto registerSegment = [&](const LaneFlowState& fromState, int nextLane) {
+            segments.push_back({ fromState.lane, nextLane });
+            occupied[static_cast<size_t>(floor + 1)][nextLane] = true;
+
+            const int delta = nextLane - fromState.lane;
+            LaneFlowState nextState = {};
+            nextState.lane = nextLane;
+            nextState.lastDelta = delta;
+            nextState.straightStreak = (delta == 0) ? (fromState.straightStreak + 1) : 0;
+
+            if (!nextStateExists[static_cast<size_t>(nextLane)]) {
+                nextStates[static_cast<size_t>(nextLane)] = nextState;
+                nextStateExists[static_cast<size_t>(nextLane)] = true;
+                return;
+            }
+
+            LaneFlowState& existingState = nextStates[static_cast<size_t>(nextLane)];
+            if (nextState.straightStreak < existingState.straightStreak ||
+                std::abs(nextState.lastDelta) < std::abs(existingState.lastDelta)) {
+                existingState = nextState;
+            }
+        };
+
+        for (int orderIndex = 0; orderIndex < static_cast<int>(processOrder.size()); ++orderIndex) {
+            const LaneFlowState& state = activeNodes[static_cast<size_t>(processOrder[static_cast<size_t>(orderIndex)])];
+            const int uniqueTargetCount = CountUniqueTargetLanes(segments);
+            const int remainingSources = static_cast<int>(processOrder.size()) - orderIndex;
+            const bool preferFreshTarget = (uniqueTargetCount + remainingSources) <= targetNodeCount;
+
+            std::vector<LaneCandidate> candidates = BuildLaneCandidates(state, segments, preferFreshTarget, false, false);
+            if (candidates.empty()) {
+                candidates = BuildLaneCandidates(state, segments, preferFreshTarget, true, false);
+            }
+            if (candidates.empty()) {
+                candidates = BuildLaneCandidates(state, segments, false, true, true);
+            }
+            if (candidates.empty()) {
+                candidates.push_back({ state.lane, 0, 1 });
+            }
+
+            registerSegment(state, PickWeightedLane(candidates, rng));
+        }
+
+        while (CountUniqueTargetLanes(segments) < targetNodeCount) {
+            bool addedBranch = false;
+            std::shuffle(processOrder.begin(), processOrder.end(), rng);
+
+            for (int stateIndex : processOrder) {
+                const LaneFlowState& state = activeNodes[static_cast<size_t>(stateIndex)];
+                if (CountOutgoingSegments(segments, state.lane) >= 2) {
+                    continue;
+                }
+
+                std::vector<LaneCandidate> branchCandidates = BuildLaneCandidates(state, segments, true, false, false);
+                if (branchCandidates.empty()) {
+                    branchCandidates = BuildLaneCandidates(state, segments, true, true, false);
+                }
+                if (branchCandidates.empty()) {
+                    continue;
+                }
+
+                registerSegment(state, PickWeightedLane(branchCandidates, rng));
+                addedBranch = true;
+                break;
+            }
+
+            if (!addedBranch) {
+                break;
+            }
+        }
+
+        activeNodes.clear();
+        for (int lane = 0; lane < kLaneCount; ++lane) {
+            if (nextStateExists[static_cast<size_t>(lane)]) {
+                activeNodes.push_back(nextStates[static_cast<size_t>(lane)]);
+            }
+        }
+    }
+
+    for (int floor = 1; floor <= kRegularFloorCount; ++floor) {
         const int baseY = bottomY - ((floor - 1) * floorSpacing);
+        std::array<int, kLaneCount> floorLaneXs = {};
 
-        for (int nodeIndex = 0; nodeIndex < nodeCount; ++nodeIndex) {
-            std::uniform_int_distribution<int> jitterX(-5, 5);
-            std::uniform_int_distribution<int> jitterY(-2, 2);
+        for (int lane = 0; lane < kLaneCount; ++lane) {
+            const int baseX = generationMinX + static_cast<int>(std::round(static_cast<float>(lane) * laneSpacing));
+            const int jitter = (floor == 1 || floor == kRegularFloorCount) ? 0 : xJitterDist(rng);
+            floorLaneXs[static_cast<size_t>(lane)] = baseX + jitter;
+        }
+
+        for (int lane = 1; lane < kLaneCount; ++lane) {
+            floorLaneXs[static_cast<size_t>(lane)] = (std::max)(
+                floorLaneXs[static_cast<size_t>(lane)],
+                floorLaneXs[static_cast<size_t>(lane - 1)] + minLaneGap);
+        }
+
+        floorLaneXs[static_cast<size_t>(kLaneCount - 1)] = (std::min)(
+            floorLaneXs[static_cast<size_t>(kLaneCount - 1)],
+            maxX);
+
+        for (int lane = kLaneCount - 2; lane >= 0; --lane) {
+            floorLaneXs[static_cast<size_t>(lane)] = (std::min)(
+                floorLaneXs[static_cast<size_t>(lane)],
+                floorLaneXs[static_cast<size_t>(lane + 1)] - minLaneGap);
+        }
+
+        floorLaneXs[0] = (std::max)(floorLaneXs[0], minX);
+
+        for (int lane = 0; lane < kLaneCount; ++lane) {
+            if (!occupied[static_cast<size_t>(floor)][lane]) {
+                continue;
+            }
 
             RunNodeState node = {};
             node.id = nextId++;
             node.floor = floor;
-            node.x = leftBound + ((nodeIndex + 1) * laneWidth) + jitterX(rng);
-            node.y = baseY + jitterY(rng);
-            node.type = PickNodeTypeForFloor(floor, regularFloorCount, rng);
+            node.x = floorLaneXs[static_cast<size_t>(lane)];
+            node.y = baseY + ((floor == 1 || floor == kRegularFloorCount) ? 0 : yJitterDist(rng));
+            node.type = PickNodeTypeForFloor(floor, kRegularFloorCount, rng);
             node.unlocked = (floor == 1);
+            node.reachable = (floor == 1);
 
+            nodeIdByFloorLane[static_cast<size_t>(floor)][lane] = node.id;
             floorNodeIds[static_cast<size_t>(floor)].push_back(node.id);
             run.nodes.push_back(node);
         }
@@ -491,87 +835,41 @@ void GenerateRunMap(RunStateData& run, int screenWidth, int screenHeight) {
     RunNodeState bossNode = {};
     bossNode.id = nextId++;
     bossNode.floor = run.totalFloors;
-    bossNode.x = screenWidth / 2;
-    bossNode.y = topY;
+    int topFloorSumX = 0;
+    int topFloorCount = 0;
+    for (int topNodeId : floorNodeIds[static_cast<size_t>(kRegularFloorCount)]) {
+        const RunNodeState* topNode = FindNodeById(run, topNodeId);
+        if (topNode != nullptr) {
+            topFloorSumX += topNode->x;
+            ++topFloorCount;
+        }
+    }
+    bossNode.x = (topFloorCount > 0) ? (topFloorSumX / topFloorCount) : ((minX + maxX) / 2);
+    bossNode.y = bottomY - (kRegularFloorCount * floorSpacing) - 4;
     bossNode.type = RunNodeType::Boss;
     floorNodeIds[static_cast<size_t>(run.totalFloors)].push_back(bossNode.id);
     run.nodes.push_back(bossNode);
 
-    for (int floor = 1; floor < run.totalFloors; ++floor) {
-        const std::vector<int>& currentFloorNodes = floorNodeIds[static_cast<size_t>(floor)];
-        const std::vector<int>& nextFloorNodes = floorNodeIds[static_cast<size_t>(floor + 1)];
-
-        for (int currentNodeId : currentFloorNodes) {
-            RunNodeState* currentNode = FindNodeById(run, currentNodeId);
-            if (currentNode == nullptr) {
+    for (int floor = 1; floor < kRegularFloorCount; ++floor) {
+        for (const LaneSegment& segment : floorSegments[static_cast<size_t>(floor)]) {
+            const int fromNodeId = nodeIdByFloorLane[static_cast<size_t>(floor)][segment.fromLane];
+            const int toNodeId = nodeIdByFloorLane[static_cast<size_t>(floor + 1)][segment.toLane];
+            if (fromNodeId < 0 || toNodeId < 0) {
                 continue;
             }
 
-            std::vector<std::pair<int, int>> distancePairs;
-            for (int nextNodeId : nextFloorNodes) {
-                const RunNodeState* nextNode = FindNodeById(run, nextNodeId);
-                if (nextNode == nullptr) {
-                    continue;
-                }
-
-                distancePairs.push_back({ std::abs(nextNode->x - currentNode->x), nextNodeId });
-            }
-
-            std::sort(distancePairs.begin(), distancePairs.end());
-            if (!distancePairs.empty()) {
-                currentNode->nextNodeIds.push_back(distancePairs[0].second);
-            }
-
-            if (distancePairs.size() > 1) {
-                std::uniform_int_distribution<int> branchChance(0, 99);
-                if (branchChance(rng) < 35) {
-                    currentNode->nextNodeIds.push_back(distancePairs[1].second);
-                }
+            RunNodeState* fromNode = FindNodeById(run, fromNodeId);
+            if (fromNode != nullptr &&
+                std::find(fromNode->nextNodeIds.begin(), fromNode->nextNodeIds.end(), toNodeId) == fromNode->nextNodeIds.end()) {
+                fromNode->nextNodeIds.push_back(toNodeId);
             }
         }
+    }
 
-        for (int nextNodeId : nextFloorNodes) {
-            bool hasIncomingEdge = false;
-            for (int currentNodeId : currentFloorNodes) {
-                RunNodeState* currentNode = FindNodeById(run, currentNodeId);
-                if (currentNode == nullptr) {
-                    continue;
-                }
-
-                if (std::find(currentNode->nextNodeIds.begin(), currentNode->nextNodeIds.end(), nextNodeId) != currentNode->nextNodeIds.end()) {
-                    hasIncomingEdge = true;
-                    break;
-                }
-            }
-
-            if (hasIncomingEdge) {
-                continue;
-            }
-
-            const RunNodeState* nextNode = FindNodeById(run, nextNodeId);
-            if (nextNode == nullptr) {
-                continue;
-            }
-
-            int bestCurrentNodeId = currentFloorNodes.front();
-            int bestDistance = 9999;
-            for (int currentNodeId : currentFloorNodes) {
-                const RunNodeState* currentNode = FindNodeById(run, currentNodeId);
-                if (currentNode == nullptr) {
-                    continue;
-                }
-
-                const int distance = std::abs(nextNode->x - currentNode->x);
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    bestCurrentNodeId = currentNodeId;
-                }
-            }
-
-            RunNodeState* bestCurrentNode = FindNodeById(run, bestCurrentNodeId);
-            if (bestCurrentNode != nullptr) {
-                bestCurrentNode->nextNodeIds.push_back(nextNodeId);
-            }
+    for (int topNodeId : floorNodeIds[static_cast<size_t>(kRegularFloorCount)]) {
+        RunNodeState* topNode = FindNodeById(run, topNodeId);
+        if (topNode != nullptr) {
+            topNode->nextNodeIds.push_back(bossNode.id);
         }
     }
 }
@@ -717,6 +1015,7 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
     run.potions.push_back(MakePotion(2, u8"회복 포션", u8"체력을 소량 회복합니다.", false));
 
     GenerateRunMap(run, screenWidth, screenHeight);
+    RefreshReachableNodes(run);
     ResetRoomRuntimeState(run);
 }
 
@@ -818,24 +1117,15 @@ bool CanEnterNode(const RunStateData& run, int nodeId) {
         return false;
     }
 
-    if (!node->unlocked || node->completed) {
+    if (node->completed || !node->reachable) {
         return false;
-    }
-
-    if (run.currentNodeId < 0) {
-        return node->floor == 1;
     }
 
     if (!run.roomResolved) {
-        return false;
+        return run.currentNodeId < 0;
     }
 
-    const RunNodeState* currentNode = FindNodeById(run, run.currentNodeId);
-    if (currentNode == nullptr) {
-        return false;
-    }
-
-    return std::find(currentNode->nextNodeIds.begin(), currentNode->nextNodeIds.end(), nodeId) != currentNode->nextNodeIds.end();
+    return true;
 }
 
 bool EnterNode(RunStateData& run, int nodeId) {
@@ -862,6 +1152,7 @@ bool EnterNode(RunStateData& run, int nodeId) {
     run.scene = RunSceneType::Room;
     run.overlay = RunOverlayType::None;
     run.visitedNodeTypes.push_back(node->type);
+    RefreshReachableNodes(run);
     ResetRoomRuntimeState(run);
     CaptureNodeEntrySnapshot(run);
     PrepareCurrentRoomState(run);
@@ -877,6 +1168,38 @@ void UnlockNextNodes(RunStateData& run, int nodeId) {
     for (int nextNodeId : currentNode->nextNodeIds) {
         RunNodeState* nextNode = FindNodeById(run, nextNodeId);
         if (nextNode != nullptr) {
+            nextNode->unlocked = true;
+        }
+    }
+}
+
+void RefreshReachableNodes(RunStateData& run) {
+    for (RunNodeState& node : run.nodes) {
+        node.reachable = false;
+    }
+
+    if (run.currentNodeId < 0) {
+        for (RunNodeState& node : run.nodes) {
+            if (node.floor == 1 && node.unlocked && !node.completed) {
+                node.reachable = true;
+            }
+        }
+        return;
+    }
+
+    if (!run.roomResolved) {
+        return;
+    }
+
+    const RunNodeState* currentNode = FindNodeById(run, run.currentNodeId);
+    if (currentNode == nullptr) {
+        return;
+    }
+
+    for (int nextNodeId : currentNode->nextNodeIds) {
+        RunNodeState* nextNode = FindNodeById(run, nextNodeId);
+        if (nextNode != nullptr && !nextNode->completed) {
+            nextNode->reachable = true;
             nextNode->unlocked = true;
         }
     }
@@ -898,6 +1221,7 @@ void ResolveCurrentNode(RunStateData& run, RunNodeResultType result) {
     if (result == RunNodeResultType::Victory || result == RunNodeResultType::Resolved || result == RunNodeResultType::Escape) {
         UnlockNextNodes(run, node->id);
     }
+    RefreshReachableNodes(run);
 }
 
 void ReopenCurrentNodeIntro(RunStateData& run) {
@@ -918,6 +1242,7 @@ void ReopenCurrentNodeIntro(RunStateData& run) {
     run.roomResolved = false;
     run.scene = RunSceneType::Room;
     run.overlay = RunOverlayType::None;
+    RefreshReachableNodes(run);
     ResetRoomRuntimeState(run);
     PrepareCurrentRoomState(run);
 }

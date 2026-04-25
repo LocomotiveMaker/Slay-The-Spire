@@ -6,6 +6,7 @@
 #include "InputManager.h"
 #include "RunState.h"
 #include "ScreenManager.h"
+#include "TextLayout.h"
 #include <string>
 #include <vector>
 
@@ -18,15 +19,26 @@ private:
     int screenHeight;
     float minCameraY;
     float maxCameraY;
+    bool useViewport;
+    int viewportX;
+    int viewportY;
+    int viewportWidth;
+    int viewportHeight;
 
-    void DrawPath(ScreenManager& screen, int x1, int y1, int x2, int y2, WORD color) const;
-    std::string GetNodeIcon(RunNodeType type) const;
+    void RecalculateCameraBounds();
+    void DrawPath(ScreenManager& screen, int x1, int y1, int x2, int y2, WORD color, int hashValue) const;
+    std::string GetNodeLabel(RunNodeType type) const;
     WORD GetNodeColor(const RunNodeState& node) const;
+    WORD GetPathColor(const RunNodeState& fromNode, const RunNodeState& toNode) const;
+    int GetNodeWidth() const;
+    int GetNodeHeight() const;
 
 public:
     MapRenderer(int width, int height);
 
     void SetNodes(const std::vector<RunNodeState>* mapNodes);
+    void SetViewport(int x, int y, int width, int height);
+    void ClearViewport();
     void ResetCameraToBottom();
     void FocusToFloor(int floor);
 
