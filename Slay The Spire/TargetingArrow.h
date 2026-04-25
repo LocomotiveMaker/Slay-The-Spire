@@ -12,6 +12,7 @@ private:
     int endX;
     int endY;
     bool isActive;
+    WORD color;
 
     // 내부 헬퍼 함수: 각도에 따른 화살표 머리 그리기
     void DrawArrowHead(ScreenManager& screen, int x, int y, double angle);
@@ -22,6 +23,7 @@ public:
     void SetStartPoint(int x, int y);
     void SetEndPoint(int x, int y);
     void SetActive(bool state);
+    void SetColor(WORD newColor);
     bool IsActive() const;
 
     void Render(ScreenManager& screen);

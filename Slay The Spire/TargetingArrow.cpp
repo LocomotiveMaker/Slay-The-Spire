@@ -9,7 +9,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-TargetingArrow::TargetingArrow() : startX(0), startY(0), endX(0), endY(0), isActive(false) {}
+TargetingArrow::TargetingArrow()
+    : startX(0), startY(0), endX(0), endY(0), isActive(false), color(COLOR_RED) {}
 
 void TargetingArrow::SetStartPoint(int x, int y) {
     startX = x;
@@ -25,6 +26,10 @@ void TargetingArrow::SetActive(bool state) {
     isActive = state;
 }
 
+void TargetingArrow::SetColor(WORD newColor) {
+    color = newColor;
+}
+
 bool TargetingArrow::IsActive() const {
     return isActive;
 }
@@ -34,8 +39,6 @@ void TargetingArrow::DrawArrowHead(ScreenManager& screen, int x, int y, double a
     // 각도를 디그리(Degree)로 변환하여 5방향(좌, 좌상, 상, 우상, 우) 판별
     // 카드는 보통 화면 아래에 있으므로 아래 방향은 제외하거나 단순화함.
     double deg = angle * (180.0 / M_PI);
-
-    WORD color = COLOR_RED; // 또는 FOREGROUND_RED | FOREGROUND_INTENSITY 등 눈에 띄는 색상
 
     // 슬더스의 굵은 화살표 느낌을 내기 위해 여러 문자를 조합해 그립니다.
     if (deg > -22.5 && deg <= 22.5) {
@@ -125,7 +128,7 @@ void TargetingArrow::Render(ScreenManager& screen) {
                 for (int dx = -thickness; dx <= thickness; ++dx) {
                     // 원형으로 두께를 주기 위한 단순 거리 체크
                     if (dx * dx + dy * dy <= thickness * thickness) {
-                        screen.DrawChar(currentX + dx, currentY + dy, '#', COLOR_RED); // 선 색상 및 문자
+                        screen.DrawChar(currentX + dx, currentY + dy, '#', color); // 선 색상 및 문자
                     }
                 }
             }

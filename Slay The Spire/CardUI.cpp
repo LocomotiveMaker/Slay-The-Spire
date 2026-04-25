@@ -33,7 +33,12 @@ std::string GetCardTypeLabel(CardType type) {
 } // namespace
 
 CardUI::CardUI(int x, int y, CardData* cardData)
-    : UIElement(x, y, 28, 18), data(cardData), baseY(y), rightOcclusionChars(0) {
+    : UIElement(x, y, 28, 18),
+    data(cardData),
+    baseY(y),
+    rightOcclusionChars(0),
+    frameColor(COLOR_WHITE),
+    playable(true) {
     RebuildLayoutCache();
 }
 
@@ -78,11 +83,21 @@ void CardUI::SetRightOcclusion(int chars) {
     RebuildLayoutCache();
 }
 
+void CardUI::SetFrameColor(WORD color) {
+    frameColor = color;
+}
+
+void CardUI::SetPlayable(bool canPlay) {
+    playable = canPlay;
+    if (!playable) {
+        isHovered = false;
+    }
+}
+
 bool CardUI::Update(InputManager& input) {
     bool hit = UIElement::Update(input);
 
-    // Hovered cards float upward to preserve the existing feedback.
-    y = isHovered ? baseY - 3 : baseY;
+    y = (playable && isHovered) ? baseY - 3 : baseY;
 
     if (isHovered && input.IsLeftClickDown()) {
         // Reserved for future card-specific interactions.
@@ -93,7 +108,7 @@ bool CardUI::Update(InputManager& input) {
 void CardUI::Render(ScreenManager& screen) {
     if (data == nullptr) return;
 
-    const WORD color = isHovered ? COLOR_YELLOW : COLOR_WHITE;
+    const WORD color = playable ? (isHovered ? COLOR_YELLOW : frameColor) : FOREGROUND_INTENSITY;
 
     screen.DrawString(x, y + 0, ",--------------------------.", color);
     screen.DrawString(x, y + 1, "|[" + std::to_string(data->cost) + "]                       |", color);

@@ -41,6 +41,8 @@ struct Rect {
     }
 };
 
+void RenderFrameBox(ScreenManager& screen, const Rect& rect, WORD color);
+
 enum class EndingStage {
     None,
     DefeatReveal,
@@ -129,6 +131,81 @@ Rect LerpRectFixedTopCenter(const Rect& from, const Rect& to, float t) {
     result.x = centerX - (width / 2);
     result.y = from.y;
     return result;
+}
+
+Rect LerpRectFixedBottomRight(const Rect& from, const Rect& to, float t) {
+    const float eased = Clamp01(t);
+    const int width = LerpInt(from.width, to.width, eased);
+    const int height = LerpInt(from.height, to.height, eased);
+    const int right = from.x + from.width;
+    const int bottom = from.y + from.height;
+
+    Rect result = {};
+    result.width = width;
+    result.height = height;
+    result.x = right - width;
+    result.y = bottom - height;
+    return result;
+}
+
+WORD GetCardTypeFrameColor(CardType type) {
+    switch (type) {
+    case CardType::Attack:
+        return COLOR_RED;
+    case CardType::Skill:
+        return COLOR_BLUE;
+    case CardType::Power:
+        return FOREGROUND_BLUE;
+    default:
+        return COLOR_WHITE;
+    }
+}
+
+bool IsGroundUsableCard(const CardData& card) {
+    return card.type == CardType::Skill || card.type == CardType::Power;
+}
+
+std::vector<std::string> GetBigEnergyRows(int energy, int maxEnergy) {
+    const std::string valueText = std::to_string((std::max)(0, energy)) + "/" + std::to_string((std::max)(0, maxEnergy));
+    const char* digits[11][5] = {
+        { "333", "3 3", "3 3", "3 3", "333" },
+        { " 1 ", "11 ", " 1 ", " 1 ", "111" },
+        { "222", "  2", "222", "2  ", "222" },
+        { "333", "  3", "333", "  3", "333" },
+        { "4 4", "4 4", "444", "  4", "  4" },
+        { "555", "5  ", "555", "  5", "555" },
+        { "666", "6  ", "666", "6 6", "666" },
+        { "777", "  7", " 7 ", " 7 ", " 7 " },
+        { "888", "8 8", "888", "8 8", "888" },
+        { "999", "9 9", "999", "  9", "999" },
+        { "  /", " / ", " / ", "/  ", "/  " }
+    };
+
+    std::vector<std::string> rows(5);
+    for (char ch : valueText) {
+        const int glyphIndex = (ch == '/') ? 10 : (ch >= '0' && ch <= '9' ? ch - '0' : -1);
+        if (glyphIndex < 0) {
+            continue;
+        }
+        for (int row = 0; row < 5; ++row) {
+            if (!rows[static_cast<size_t>(row)].empty()) {
+                rows[static_cast<size_t>(row)] += " ";
+            }
+            rows[static_cast<size_t>(row)] += digits[glyphIndex][row];
+        }
+    }
+    return rows;
+}
+
+void RenderBigEnergy(ScreenManager& screen, const Rect& rect, int energy, int maxEnergy, WORD color) {
+    RenderFrameBox(screen, rect, color);
+    screen.DrawString(rect.x + 2, rect.y + 1, u8"에너지", color);
+
+    const std::vector<std::string> rows = GetBigEnergyRows(energy, maxEnergy);
+    const int startY = rect.y + 3;
+    for (int row = 0; row < static_cast<int>(rows.size()); ++row) {
+        screen.DrawString(rect.x + 2, startY + row, rows[static_cast<size_t>(row)], color);
+    }
 }
 
 int MeasureArtWidth(const std::vector<std::string>& lines) {
@@ -593,6 +670,10 @@ int main() {
     TargetingArrow targetingArrow;
     int activeCombatRoomKey = -9999;
     int draggedHandIndex = -1;
+    std::vector<int> handLayoutXs;
+    bool nextDrawCardGoesRight = true;
+    bool forceRecenterHandLayout = true;
+    float discardPileExpandProgress = 0.0f;
     std::wstring lastQueuedBgmTrack;
     int lastQueuedBgmPercent = -1;
     bool wasF1Pressed = false;
@@ -629,6 +710,10 @@ int main() {
         enemyEntityUi.reset();
         activeCombatRoomKey = -9999;
         draggedHandIndex = -1;
+        handLayoutXs.clear();
+        nextDrawCardGoesRight = true;
+        forceRecenterHandLayout = true;
+        discardPileExpandProgress = 0.0f;
         targetingArrow.SetActive(false);
         };
 
@@ -1611,14 +1696,14 @@ int main() {
                             finishRunToEnding(false, to_string(run.currentFloor) + (run.currentRoomType == RunNodeType::Boss ? string(u8"층 보스전에서 쓰러졌습니다.") : string(u8"층 전투에서 쓰러졌습니다.")));
                         };
 
-                        const int combatPlayerX = screen.GetWidth() * 22 / 100;
-                        const int combatEnemyX = screen.GetWidth() * 78 / 100;
-                        const int combatBaselineY = screen.GetHeight() - 22;
+                        const int combatPlayerX = screen.GetWidth() * 20 / 100;
+                        const int combatEnemyX = screen.GetWidth() * 82 / 100;
+                        const int combatBaselineY = screen.GetHeight() - 24;
                         const int combatPlayerY = combatBaselineY;
                         const int combatEnemyY = combatBaselineY;
                         const Rect drawPileRect = { 2, screen.GetHeight() - 10, 10, 4 };
                         const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 10, 10, 4 };
-                        const Rect energyRect = { 14, screen.GetHeight() - 10, 16, 4 };
+                        const Rect energyRect = { (std::max)(14, combatPlayerX - 38), screen.GetHeight() - 17, 30, 9 };
                         Rect intentRect = { combatEnemyX - 11, 8, 24, 5 };
 
                         auto renderDeadPlayerPose = [&]() {
@@ -1765,13 +1850,51 @@ int main() {
                             const int totalHandWidth = cardCount > 0 ? (28 + (cardCount - 1) * cardSpacing) : 0;
                             const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
                             const int handBaseY = screen.GetHeight() - 18;
+                            const bool allowCardInteraction = (run.overlay == RunOverlayType::None);
+
+                            const auto recenterHandLayout = [&]() {
+                                handLayoutXs.clear();
+                                handLayoutXs.reserve(static_cast<size_t>(cardCount));
+                                for (int cardIndex = 0; cardIndex < cardCount; ++cardIndex) {
+                                    handLayoutXs.push_back(handStartX + cardIndex * cardSpacing);
+                                }
+                                nextDrawCardGoesRight = true;
+                                forceRecenterHandLayout = false;
+                                };
+
+                            if (cardCount <= 0) {
+                                handLayoutXs.clear();
+                                nextDrawCardGoesRight = true;
+                                forceRecenterHandLayout = true;
+                            }
+                            else if (forceRecenterHandLayout || handLayoutXs.empty() || static_cast<int>(handLayoutXs.size()) > cardCount) {
+                                recenterHandLayout();
+                            }
+                            else {
+                                while (static_cast<int>(handLayoutXs.size()) < cardCount) {
+                                    const auto minMaxX = std::minmax_element(handLayoutXs.begin(), handLayoutXs.end());
+                                    const int addX = nextDrawCardGoesRight
+                                        ? (*minMaxX.second + cardSpacing)
+                                        : (*minMaxX.first - cardSpacing);
+                                    handLayoutXs.push_back(addX);
+                                    nextDrawCardGoesRight = !nextDrawCardGoesRight;
+                                }
+
+                                const auto minMaxX = std::minmax_element(handLayoutXs.begin(), handLayoutXs.end());
+                                if (*minMaxX.first < 2 || *minMaxX.second + 28 > screen.GetWidth() - 2) {
+                                    recenterHandLayout();
+                                }
+                            }
 
                             vector<CardUI> handCards;
                             handCards.reserve(hand.size());
                             for (size_t cardIndex = 0; cardIndex < hand.size(); ++cardIndex) {
-                                handCards.emplace_back(handStartX + static_cast<int>(cardIndex) * cardSpacing, handBaseY, const_cast<CardData*>(&hand[cardIndex]));
-                                handCards.back().SetBasePosition(handStartX + static_cast<int>(cardIndex) * cardSpacing, handBaseY);
+                                const int cardX = handLayoutXs[cardIndex];
+                                handCards.emplace_back(cardX, handBaseY, const_cast<CardData*>(&hand[cardIndex]));
+                                handCards.back().SetBasePosition(cardX, handBaseY);
                                 handCards.back().SetRightOcclusion(cardIndex + 1 < hand.size() ? overlapChars : 0);
+                                handCards.back().SetFrameColor(GetCardTypeFrameColor(hand[cardIndex].type));
+                                handCards.back().SetPlayable(hand[cardIndex].cost <= combatSystem->GetEnergy());
                             }
 
                             int hoveredHandIndex = -1;
@@ -1784,14 +1907,19 @@ int main() {
 
                             for (int cardIndex = 0; cardIndex < cardCount; ++cardIndex) {
                                 CardUI& cardUi = handCards[static_cast<size_t>(cardIndex)];
-                                const bool hovered = (draggedHandIndex < 0 && cardIndex == hoveredHandIndex);
+                                const bool hasEnergy = hand[static_cast<size_t>(cardIndex)].cost <= combatSystem->GetEnergy();
+                                const bool hovered = allowCardInteraction && hasEnergy && (draggedHandIndex < 0 && cardIndex == hoveredHandIndex);
                                 cardUi.SetHovered(hovered || cardIndex == draggedHandIndex);
-                                if (hovered || cardIndex == draggedHandIndex) {
+                                if ((hovered || cardIndex == draggedHandIndex) && hasEnergy) {
                                     cardUi.SetPosition(cardUi.GetX(), handBaseY - 3);
                                 }
                             }
 
                             if (draggedHandIndex >= cardCount) {
+                                draggedHandIndex = -1;
+                                targetingArrow.SetActive(false);
+                            }
+                            if (!allowCardInteraction && draggedHandIndex >= 0) {
                                 draggedHandIndex = -1;
                                 targetingArrow.SetActive(false);
                             }
@@ -1801,25 +1929,46 @@ int main() {
                             }
 
                             CombatDropTarget dropTarget = CombatDropTarget::None;
+                            const Rect expandedDiscardRect = {
+                                discardPileRect.x - 26,
+                                discardPileRect.y - 14,
+                                discardPileRect.width + 26,
+                                discardPileRect.height + 14
+                            };
                             if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
                                 const CardData& draggedCard = hand[static_cast<size_t>(draggedHandIndex)];
-                                if (discardPileRect.Contains(mouseX, mouseY)) {
+                                const bool hasEnergy = draggedCard.cost <= combatSystem->GetEnergy();
+                                if (expandedDiscardRect.Contains(mouseX, mouseY)) {
                                     dropTarget = CombatDropTarget::DiscardPile;
                                 }
-                                else if (draggedCard.targetType == CardTargetType::Enemy && enemyEntityUi && enemyEntityUi->IsPointInside(mouseX, mouseY)) {
+                                else if (hasEnergy && draggedCard.targetType == CardTargetType::Enemy && enemyEntityUi && enemyEntityUi->IsPointInside(mouseX, mouseY)) {
                                     dropTarget = CombatDropTarget::Enemy;
                                 }
-                                else if (draggedCard.targetType == CardTargetType::Self && playerEntityUi && playerEntityUi->IsPointInside(mouseX, mouseY)) {
+                                else if (hasEnergy && draggedCard.type == CardType::Attack && draggedCard.targetType == CardTargetType::Self && playerEntityUi && playerEntityUi->IsPointInside(mouseX, mouseY)) {
                                     dropTarget = CombatDropTarget::Player;
                                 }
 
-                                targetingArrow.SetActive(dropTarget != CombatDropTarget::DiscardPile);
+                                const bool showArrow = hasEnergy || dropTarget == CombatDropTarget::DiscardPile;
+                                targetingArrow.SetActive(showArrow);
+                                targetingArrow.SetColor(dropTarget == CombatDropTarget::DiscardPile
+                                    ? COLOR_WHITE
+                                    : (draggedCard.type == CardType::Attack ? COLOR_RED : FOREGROUND_INTENSITY));
                                 targetingArrow.SetStartPoint(handCards[static_cast<size_t>(draggedHandIndex)].GetX() + 14, handBaseY - 1);
                                 targetingArrow.SetEndPoint(mouseX, mouseY);
                             }
                             else {
                                 targetingArrow.SetActive(false);
                             }
+
+                            const float discardTargetProgress = (dropTarget == CombatDropTarget::DiscardPile) ? 1.0f : 0.0f;
+                            const float discardAnimSpeed = deltaTimeSec * 12.0f;
+                            if (discardPileExpandProgress < discardTargetProgress) {
+                                discardPileExpandProgress = (std::min)(discardTargetProgress, discardPileExpandProgress + discardAnimSpeed);
+                            }
+                            else if (discardPileExpandProgress > discardTargetProgress) {
+                                discardPileExpandProgress = (std::max)(discardTargetProgress, discardPileExpandProgress - discardAnimSpeed);
+                            }
+                            const Rect discardRenderRect = LerpRectFixedBottomRight(discardPileRect, expandedDiscardRect, EaseOutCubic(discardPileExpandProgress));
 
                             if (playerEntityUi) {
                                 playerEntityUi->SetTargeted(dropTarget == CombatDropTarget::Player);
@@ -1869,17 +2018,23 @@ int main() {
                                     actionSucceeded = actionResult.success;
                                     if (actionResult.success) {
                                         ++globalStats.totalCardsDiscarded;
+                                        forceRecenterHandLayout = true;
                                         if (enemyEntityUi && actionResult.enemyHit) {
                                             enemyEntityUi->TriggerHitAnimation();
                                         }
                                         audio.PlayEffect(L"card_discard.wav", L"sfx_discard");
                                     }
                                 }
-                                else if (dropTarget == CombatDropTarget::Enemy || dropTarget == CombatDropTarget::Player) {
-                                    CombatActionResult actionResult = combatSystem->TryUseCard(draggedHandIndex, dropTarget);
+                                else if (dropTarget == CombatDropTarget::Enemy || dropTarget == CombatDropTarget::Player || IsGroundUsableCard(hand[static_cast<size_t>(draggedHandIndex)])) {
+                                    CombatDropTarget actionTarget = dropTarget;
+                                    if (actionTarget == CombatDropTarget::None && IsGroundUsableCard(hand[static_cast<size_t>(draggedHandIndex)])) {
+                                        actionTarget = CombatDropTarget::None;
+                                    }
+                                    CombatActionResult actionResult = combatSystem->TryUseCard(draggedHandIndex, actionTarget);
                                     actionSucceeded = actionResult.success;
                                     if (actionResult.success) {
                                         ++globalStats.totalCardsUsed;
+                                        forceRecenterHandLayout = true;
                                         if (enemyEntityUi && actionResult.enemyHit) {
                                             enemyEntityUi->TriggerHitAnimation();
                                         }
@@ -1921,13 +2076,12 @@ int main() {
                             screen.DrawString(drawPileRect.x + 2, drawPileRect.y + 1, u8"뽑기", COLOR_WHITE);
                             screen.DrawString(drawPileRect.x + 2, drawPileRect.y + 2, string("Count ") + to_string(combatSystem->GetDrawPileCount()), COLOR_WHITE);
 
-                            RenderFrameBox(screen, discardPileRect, dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
-                            screen.DrawString(discardPileRect.x + 1, discardPileRect.y + 1, u8"버리기", dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
-                            screen.DrawString(discardPileRect.x + 2, discardPileRect.y + 2, string("Count ") + to_string(combatSystem->GetDiscardPileCount()), COLOR_WHITE);
+                            RenderFrameBox(screen, discardRenderRect, dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
+                            screen.DrawString(discardRenderRect.x + 2, discardRenderRect.y + 1, u8"버리기", dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
+                            screen.DrawString(discardRenderRect.x + 2, discardRenderRect.y + 2, string("Count ") + to_string(combatSystem->GetDiscardPileCount()), COLOR_WHITE);
 
-                            RenderFrameBox(screen, energyRect, COLOR_YELLOW);
-                            screen.DrawString(energyRect.x + 2, energyRect.y + 1, string(u8"에너지 ") + to_string(combatSystem->GetEnergy()) + "/" + to_string(combatSystem->GetMaxEnergy()), COLOR_YELLOW);
-                            screen.DrawString(energyRect.x + 2, energyRect.y + 2, string(u8"속도 x") + FormatFloat(combatSystem->GetSpeedMultiplier(), 2), COLOR_GREEN);
+                            RenderBigEnergy(screen, energyRect, combatSystem->GetEnergy(), combatSystem->GetMaxEnergy(), COLOR_YELLOW);
+                            screen.DrawString(energyRect.x + 2, energyRect.y + energyRect.height - 2, string(u8"속도 x") + FormatFloat(combatSystem->GetSpeedMultiplier(), 2), COLOR_GREEN);
 
                             RenderFrameBox(screen, intentRect, COLOR_RED);
                             const EnemyIntentState& intent = combatSystem->GetCurrentIntent();
@@ -1935,7 +2089,7 @@ int main() {
                                 ? u8"[ATK] 공격 예고"
                                 : (intent.type == EnemyIntentType::Defend ? u8"[BUF] 강화 예고" : u8"[BUF] 강화 예고");
                             screen.DrawString(intentRect.x + 2, intentRect.y + 1, intentHeader, COLOR_RED);
-                            screen.DrawString(intentRect.x + 2, intentRect.y + 2, string(u8"피해/수치 ") + to_string(intent.value), COLOR_WHITE);
+                            screen.DrawString(intentRect.x + 2, intentRect.y + 2, string(u8"피해/수치 ") + to_string(intent.value) + "  " + FormatFloat(combatSystem->GetEnemyIntentRemainingSec(), 1) + "s", COLOR_WHITE);
                             const int gaugeFill = static_cast<int>(std::round((intentRect.width - 4) * combatSystem->GetEnemyIntentProgress01()));
                             string gauge(static_cast<size_t>(intentRect.width - 4), '.');
                             for (int fillIndex = 0; fillIndex < gaugeFill && fillIndex < static_cast<int>(gauge.size()); ++fillIndex) {
@@ -1950,13 +2104,27 @@ int main() {
                                 enemyEntityUi->Render(screen);
                             }
 
+                            std::vector<int> renderOrder;
+                            renderOrder.reserve(static_cast<size_t>(cardCount));
                             for (int cardIndex = 0; cardIndex < cardCount; ++cardIndex) {
-                                if (cardIndex == draggedHandIndex || (draggedHandIndex < 0 && cardIndex == hoveredHandIndex)) {
+                                renderOrder.push_back(cardIndex);
+                            }
+                            std::sort(renderOrder.begin(), renderOrder.end(), [&](int leftIndex, int rightIndex) {
+                                return handCards[static_cast<size_t>(leftIndex)].GetX() < handCards[static_cast<size_t>(rightIndex)].GetX();
+                                });
+
+                            const bool hoveredCardCanFloat = allowCardInteraction &&
+                                hoveredHandIndex >= 0 &&
+                                hoveredHandIndex < cardCount &&
+                                hand[static_cast<size_t>(hoveredHandIndex)].cost <= combatSystem->GetEnergy();
+
+                            for (int cardIndex : renderOrder) {
+                                if (cardIndex == draggedHandIndex || (draggedHandIndex < 0 && hoveredCardCanFloat && cardIndex == hoveredHandIndex)) {
                                     continue;
                                 }
                                 handCards[static_cast<size_t>(cardIndex)].Render(screen);
                             }
-                            if (draggedHandIndex < 0 && hoveredHandIndex >= 0 && hoveredHandIndex < cardCount) {
+                            if (draggedHandIndex < 0 && hoveredCardCanFloat) {
                                 handCards[static_cast<size_t>(hoveredHandIndex)].Render(screen);
                             }
                             if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {

@@ -260,6 +260,15 @@ void CombatSystem::StartBattle(const std::vector<CardData>& startingDeck) {
     discardPile.clear();
     hand.clear();
 
+    // Early prototype packs can be smaller than the real combat hand loop.
+    // Duplicate the battle source locally so realtime draw pacing still works.
+    if (!startingDeck.empty()) {
+        const size_t minimumDrawSourceSize = static_cast<size_t>(config.startingHandSize + config.handLimit);
+        while (drawPile.size() < minimumDrawSourceSize) {
+            drawPile.insert(drawPile.end(), startingDeck.begin(), startingDeck.end());
+        }
+    }
+
     ShuffleDrawPile();
 
     speedMultiplier = 1.0f;
@@ -350,8 +359,11 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
     }
 
     const bool validEnemyTarget = (card.targetType == CardTargetType::Enemy && target == CombatDropTarget::Enemy);
-    const bool validSelfTarget = (card.targetType == CardTargetType::Self && target == CombatDropTarget::Player);
-    if (!validEnemyTarget && !validSelfTarget) {
+    const bool validSelfTarget = (card.targetType == CardTargetType::Self &&
+        (target == CombatDropTarget::Player || (card.type != CardType::Attack && target == CombatDropTarget::None)));
+    const bool validNoTarget = (card.targetType == CardTargetType::None &&
+        (target == CombatDropTarget::None || (card.type != CardType::Attack && target != CombatDropTarget::DiscardPile)));
+    if (!validEnemyTarget && !validSelfTarget && !validNoTarget) {
         result.message = "Invalid target";
         return result;
     }

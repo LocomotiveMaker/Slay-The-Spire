@@ -21,7 +21,7 @@ wchar_t SanitizeGlyph(wchar_t ch) {
         return L' ';
     }
 
-    if (ch < 0x20 || !iswprint(ch)) {
+    if (ch < 0x20) {
         return L'?';
     }
 
