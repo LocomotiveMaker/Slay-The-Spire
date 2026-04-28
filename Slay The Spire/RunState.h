@@ -116,6 +116,7 @@ struct RunNodeState {
 
 struct CardPackOption {
     int id = 0;
+    CardArchetype archetype = CardArchetype::None;
     std::string title;
     std::string description;
     WORD accentColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
@@ -255,6 +256,7 @@ struct RunStateData {
     bool loseRecordCommitted = false;
     std::string playerName = u8"아이언클래드";
     std::string selectedCardPackTitle;
+    CardArchetype selectedCardPackArchetype = CardArchetype::None;
     std::string failureReasonText;
     EntityData player = {};
     std::vector<CardData> deck;

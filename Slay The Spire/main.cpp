@@ -15,6 +15,7 @@
 #include "AudioManager.h"
 #include "ButtonUI.h"
 #include "CardUI.h"
+#include "CardLibrary.h"
 #include "CombatSystem.h"
 #include "EntityUI.h"
 #include "InputManager.h"
@@ -148,6 +149,159 @@ Rect LerpRectFixedBottomRight(const Rect& from, const Rect& to, float t) {
     return result;
 }
 
+Rect LerpRectFixedBottomLeft(const Rect& from, const Rect& to, float t) {
+    const float eased = Clamp01(t);
+    const int width = LerpInt(from.width, to.width, eased);
+    const int height = LerpInt(from.height, to.height, eased);
+    const int bottom = from.y + from.height;
+
+    Rect result = {};
+    result.width = width;
+    result.height = height;
+    result.x = from.x;
+    result.y = bottom - height;
+    return result;
+}
+
+Rect LerpRectFixedBottomCenter(const Rect& from, const Rect& to, float t) {
+    const float eased = Clamp01(t);
+    const int width = LerpInt(from.width, to.width, eased);
+    const int height = LerpInt(from.height, to.height, eased);
+    const int centerX = from.x + (from.width / 2);
+    const int bottom = from.y + from.height;
+
+    Rect result = {};
+    result.width = width;
+    result.height = height;
+    result.x = centerX - (width / 2);
+    result.y = bottom - height;
+    return result;
+}
+
+bool IsBlankLikeArtCell(wchar_t ch) {
+    return ch == L' ' || ch == 0x2800 || ch == L'\t';
+}
+
+std::string WideToUtf8Text(const std::wstring& wideText) {
+    if (wideText.empty()) {
+        return {};
+    }
+
+    const int utf8Length = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wideText.data(),
+        static_cast<int>(wideText.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (utf8Length <= 0) {
+        return {};
+    }
+
+    std::string utf8Text(static_cast<size_t>(utf8Length), '\0');
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wideText.data(),
+        static_cast<int>(wideText.size()),
+        utf8Text.data(),
+        utf8Length,
+        nullptr,
+        nullptr);
+    return utf8Text;
+}
+
+std::vector<std::string> NormalizeArtLines(const std::vector<std::string>& lines) {
+    std::vector<std::wstring> wideLines;
+    wideLines.reserve(lines.size());
+
+    int commonLeading = 100000;
+    bool foundContent = false;
+
+    for (const std::string& line : lines) {
+        std::wstring wideLine = TextLayout::Utf8ToWide(line);
+        int leadingCount = 0;
+        int contentStart = static_cast<int>(wideLine.size());
+        int contentEnd = -1;
+
+        for (int index = 0; index < static_cast<int>(wideLine.size()); ++index) {
+            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
+                contentStart = index;
+                break;
+            }
+            ++leadingCount;
+        }
+
+        for (int index = static_cast<int>(wideLine.size()) - 1; index >= 0; --index) {
+            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
+                contentEnd = index;
+                break;
+            }
+        }
+
+        if (contentEnd >= contentStart) {
+            foundContent = true;
+            commonLeading = (std::min)(commonLeading, leadingCount);
+        }
+        else {
+            commonLeading = (std::min)(commonLeading, 0);
+        }
+
+        wideLines.push_back(std::move(wideLine));
+    }
+
+    if (!foundContent) {
+        return {};
+    }
+
+    std::vector<std::string> normalized;
+    normalized.reserve(wideLines.size());
+    for (const std::wstring& wideLine : wideLines) {
+        int contentStart = static_cast<int>(wideLine.size());
+        int contentEnd = -1;
+
+        for (int index = 0; index < static_cast<int>(wideLine.size()); ++index) {
+            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
+                contentStart = index;
+                break;
+            }
+        }
+
+        for (int index = static_cast<int>(wideLine.size()) - 1; index >= 0; --index) {
+            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
+                contentEnd = index;
+                break;
+            }
+        }
+
+        if (contentEnd < contentStart) {
+            continue;
+        }
+
+        const int trimStart = (std::min)(contentStart, commonLeading);
+        normalized.push_back(WideToUtf8Text(std::wstring(wideLine.begin() + trimStart, wideLine.begin() + contentEnd + 1)));
+    }
+
+    return normalized;
+}
+
+std::vector<int> BuildStarterPackOfferIndices(std::uint32_t seed, int packCount, int offerCount = 3) {
+    std::vector<int> indices;
+    indices.reserve(static_cast<size_t>(packCount));
+    for (int index = 0; index < packCount; ++index) {
+        indices.push_back(index);
+    }
+
+    std::mt19937 rng(seed ^ 0x51ED270Bu);
+    std::shuffle(indices.begin(), indices.end(), rng);
+    if (static_cast<int>(indices.size()) > offerCount) {
+        indices.resize(static_cast<size_t>(offerCount));
+    }
+    return indices;
+}
+
 WORD GetCardTypeFrameColor(CardType type) {
     switch (type) {
     case CardType::Attack:
@@ -241,6 +395,70 @@ std::vector<std::string> BuildDeathPlayerArt() {
         u8"⡾⠋⠁⠀⠀⠀⠀⣀⣀⣠⣤⣤⣤⣴⣶⡶⠶⠾⠿⠟⠛⠛⠋⠉⠏",
         u8"⠠⢘⠏⠉⠁"
     };
+}
+
+std::vector<std::string> BuildCardPackPlayerArt() {
+    return NormalizeArtLines({
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣾⣶⣄",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⡇",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⣠⣼⣿⣿⣿⣟⣀⡀",
+        u8"⣴⣀⡀⠀⠀⠀⠀⢀⡀⣼⣿⣿⣿⣿⣿⣿⣿⣆",
+        u8"⠛⠿⠿⠿⠿⠿⠿⠿⣿⢿⣿⣿⣿⣿⣿⣿⣿⣿⡏",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠛⣿⣿⣿⣿⣿⢿⣿⡇",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣿⣿⣿⣿⡎⠛⠁",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣄",
+        u8"⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆",
+        u8"⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⠋⠀⠀⠙⠿⣿⣿⣿⣄",
+        u8"⠀⠀⠀⠀⠀⠀⠘⣿⣿⡿⠋⠀⠀⠀⠀⠀⠈⢻⣿⣿⡄",
+        u8"⠀⠀⠀⠀⠀⠀⠀⢹⣿⠁⠀⠀⠀⠀⠀⠀⠀⠈⠙⠿⣿⣦",
+        u8"⠀⠀⠀⠀⠀⠀⣤⣾⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣹⣿⡀",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠛⠋"
+        });
+}
+
+std::vector<std::string> BuildNeowArt() {
+    return NormalizeArtLines({
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣶⣶⣶⣤⣀",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣾⣿⣿⣿⣿⡿⠛⠛⢿⣿⣿⣿⣧",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⠏⠀⠀⠀⠀⠹⣿⣿⣿⣇",
+        u8"⠀⠀⠀⠀⠀⠀⠀⣠⣿⣿⣿⣿⣿⣿⣶⣶⣶⣶⣶⣿⣿⣿⣿⣿⣆",
+        u8"⠀⠀⠀⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣿⡿⠟⠛⠻⢿⣿⣿⣿⣿⣿⣿⣦",
+        u8"⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣿⣿⣿⠏⠀⣠⣤⣄⠀⠹⣿⣿⣿⣿⣿⣿⣇",
+        u8"⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⡏⠀⣾⣿⣿⣿⣷⠀⢹⣿⣿⣿⣿⣿⣿",
+        u8"⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀⢿⣿⣿⣿⡿⠀⣼⣿⣿⣿⣿⣿⣿",
+        u8"⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠉⠉⠉⣠⣾⣿⣿⣿⣿⣿⣿⣿",
+        u8"⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
+        u8"⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
+        u8"⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
+        u8"⠀⠀⠸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿",
+        u8"⠀⠀⠀⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠃",
+        u8"⠀⠀⠀⠀⠹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠏",
+        u8"⠀⠀⠀⠀⠀⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠁",
+        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠿⠿⠿⠿⠿⠿⠿⠿⠛⠉"
+        });
+}
+
+std::vector<std::string> BuildStatusTooltipLines(const std::string& key, int value) {
+    if (key == u8"방어도") {
+        return { string(u8"방어도 ") + std::to_string(value), u8"먼저 소모되는 임시 보호막입니다." };
+    }
+    if (key == u8"힘") {
+        return { string(u8"힘 ") + std::to_string(value), u8"공격 피해가 그 수치만큼 증가합니다." };
+    }
+    if (key == u8"민첩") {
+        return { string(u8"민첩 ") + std::to_string(value), u8"방어를 얻는 카드와 효과의 수치가 증가합니다." };
+    }
+    if (key == u8"취약") {
+        return { string(u8"취약 ") + std::to_string(value), u8"받는 공격 피해가 50% 증가합니다." };
+    }
+    if (key == u8"약화") {
+        return { string(u8"약화 ") + std::to_string(value), u8"주는 공격 피해가 25% 감소합니다." };
+    }
+    if (key == u8"독") {
+        return { string(u8"독 ") + std::to_string(value), u8"행위가 끝날 때 독 수치만큼 피해를 받고 1 감소합니다." };
+    }
+    return { key + " " + std::to_string(value) };
 }
 
 bool RectFitsInside(const Rect& outer, const Rect& inner) {
@@ -465,17 +683,51 @@ PotionData MakeRewardPotion(int id, const string& name, const string& descriptio
     return potion;
 }
 
+int GetRewardRarityWeight(CardRarity rarity) {
+    switch (rarity) {
+    case CardRarity::Common:
+        return 70;
+    case CardRarity::Uncommon:
+        return 22;
+    case CardRarity::Rare:
+        return 8;
+    default:
+        return 1;
+    }
+}
+
+bool HasCardChoiceId(const std::vector<CardData>& cards, int id) {
+    return std::any_of(cards.begin(), cards.end(), [&](const CardData& card) {
+        return card.id == id;
+    });
+}
+
+CardData PickWeightedUniqueRewardCard(
+    std::mt19937& rng,
+    const std::vector<CardData>& pool,
+    const std::vector<CardData>& chosen) {
+    std::vector<int> candidateIndices;
+    std::vector<int> weights;
+    for (int index = 0; index < static_cast<int>(pool.size()); ++index) {
+        const CardData& card = pool[static_cast<size_t>(index)];
+        if (HasCardChoiceId(chosen, card.id)) {
+            continue;
+        }
+        candidateIndices.push_back(index);
+        weights.push_back(GetRewardRarityWeight(card.rarity));
+    }
+
+    if (candidateIndices.empty()) {
+        return CardData{};
+    }
+
+    std::discrete_distribution<int> pickDist(weights.begin(), weights.end());
+    const int pickedSlot = candidateIndices[static_cast<size_t>(pickDist(rng))];
+    return pool[static_cast<size_t>(pickedSlot)];
+}
+
 vector<CardData> BuildBattleRewardCardPool() {
-    return {
-        MakeRewardCard(8000, u8"강타+", 1, u8"적에게 8 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 8, 0),
-        MakeRewardCard(8001, u8"수비+", 1, u8"방어도 7을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 7, 0),
-        MakeRewardCard(8002, u8"재정비", 0, u8"버릴 때 카드를 1장 뽑고 에너지 1을 얻습니다.", CardType::Skill, CardTargetType::None, CardEffectType::None, CardDiscardEffectType::DrawCardsGainEnergy, 1, 1),
-        MakeRewardCard(8003, u8"약점 노출", 2, u8"적에게 취약 2를 부여합니다.", CardType::Skill, CardTargetType::Enemy, CardEffectType::ApplyVulnerable, CardDiscardEffectType::None, 2, 0),
-        MakeRewardCard(8004, u8"대검", 2, u8"적에게 12 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 12, 0),
-        MakeRewardCard(8005, u8"굳건한 자세", 2, u8"방어도 10을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 10, 0),
-        MakeRewardCard(8006, u8"폼멜 타격", 1, u8"적에게 9 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 9, 0),
-        MakeRewardCard(8007, u8"압박", 1, u8"적에게 7 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 7, 0)
-    };
+    return CardLibrary::BuildGeneralCardPool();
 }
 
 vector<PotionData> BuildBattleRewardPotionPool() {
@@ -520,14 +772,20 @@ BattleRewardState BuildBattleRewardState(const RunStateData& run, RunNodeType ro
 
     reward.cardRewardAvailable = (roomType != RunNodeType::Boss);
     if (reward.cardRewardAvailable) {
-        vector<int> indices;
-        indices.reserve(cardPool.size());
-        for (int index = 0; index < static_cast<int>(cardPool.size()); ++index) {
-            indices.push_back(index);
+        const vector<CardData> favoredPool = CardLibrary::BuildArchetypeRewardPool(run.selectedCardPackArchetype);
+        if (!favoredPool.empty()) {
+            const CardData favoredCard = PickWeightedUniqueRewardCard(rng, favoredPool, reward.cardChoices);
+            if (favoredCard.id != 0 || !favoredCard.name.empty()) {
+                reward.cardChoices.push_back(favoredCard);
+            }
         }
-        shuffle(indices.begin(), indices.end(), rng);
-        for (int pickIndex = 0; pickIndex < 3 && pickIndex < static_cast<int>(indices.size()); ++pickIndex) {
-            reward.cardChoices.push_back(cardPool[static_cast<size_t>(indices[static_cast<size_t>(pickIndex)])]);
+
+        while (reward.cardChoices.size() < 3 && reward.cardChoices.size() < cardPool.size()) {
+            const CardData pickedCard = PickWeightedUniqueRewardCard(rng, cardPool, reward.cardChoices);
+            if (pickedCard.id == 0 && pickedCard.name.empty()) {
+                break;
+            }
+            reward.cardChoices.push_back(pickedCard);
         }
     }
 
@@ -674,6 +932,7 @@ int main() {
     bool nextDrawCardGoesRight = true;
     bool forceRecenterHandLayout = true;
     float discardPileExpandProgress = 0.0f;
+    float drawPileExpandProgress = 0.0f;
     std::wstring lastQueuedBgmTrack;
     int lastQueuedBgmPercent = -1;
     bool wasF1Pressed = false;
@@ -714,6 +973,7 @@ int main() {
         nextDrawCardGoesRight = true;
         forceRecenterHandLayout = true;
         discardPileExpandProgress = 0.0f;
+        drawPileExpandProgress = 0.0f;
         targetingArrow.SetActive(false);
         };
 
@@ -929,6 +1189,7 @@ int main() {
         const bool pressedF10 = ConsumeKeyPress(VK_F10, wasF10Pressed);
         const bool pressedF11 = ConsumeKeyPress(VK_F11, wasF11Pressed);
         const bool pressedF12 = ConsumeKeyPress(VK_F12, wasF12Pressed);
+        const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
 
         if (appState == AppState::Run && settings.debugMode && run.overlay == RunOverlayType::None) {
             const auto openDebugRoom = [&](RunNodeType type) {
@@ -940,6 +1201,20 @@ int main() {
                 ResetRoomRuntimeState(run);
                 PrepareCurrentRoomState(run);
                 resetCombatPresentation();
+                queueRoomBgm();
+                };
+
+            const auto openCardPackPreview = [&]() {
+                run.scene = RunSceneType::CardPackSelect;
+                run.currentNodeId = -1;
+                run.currentRoomResult = RunNodeResultType::None;
+                run.roomResolved = false;
+                run.overlay = RunOverlayType::None;
+                ResetRoomRuntimeState(run);
+                resetCombatPresentation();
+                tooltip.SetVisible(false);
+                animatedPackIndex = (run.selectedStarterPackIndex >= 0) ? run.selectedStarterPackIndex : -1;
+                cardPackPanelProgress = (run.selectedStarterPackIndex >= 0) ? 1.0f : 0.0f;
                 queueRoomBgm();
                 };
 
@@ -956,18 +1231,27 @@ int main() {
                 const vector<PotionData> debugPotions = BuildBattleRewardPotionPool();
                 run.potions.push_back(debugPotions[static_cast<size_t>(run.potions.size() % debugPotions.size())]);
             }
-            if (pressedF5 && combatSystem && !run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
+            if (!ctrlHeld && pressedF5 && combatSystem && !run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
                 run.battleRoom.enemy.currentHp = 0;
             }
-            if (pressedF6 && combatSystem && !run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
+            if (!ctrlHeld && pressedF6 && combatSystem && !run.roomResolved && IsBattleNodeType(run.currentRoomType)) {
                 run.player.currentHp = 0;
             }
-            if (pressedF7) openDebugRoom(RunNodeType::Shop);
-            if (pressedF8) openDebugRoom(RunNodeType::Rest);
-            if (pressedF9) openDebugRoom(RunNodeType::Treasure);
-            if (pressedF10) openDebugRoom(RunNodeType::Battle);
-            if (pressedF11) openDebugRoom(RunNodeType::Elite);
-            if (pressedF12) openDebugRoom(RunNodeType::Boss);
+            if (!ctrlHeld && pressedF7) openDebugRoom(RunNodeType::Shop);
+            if (!ctrlHeld && pressedF8) openDebugRoom(RunNodeType::Rest);
+            if (!ctrlHeld && pressedF9) openDebugRoom(RunNodeType::Treasure);
+            if (!ctrlHeld && pressedF10) openDebugRoom(RunNodeType::Battle);
+            if (!ctrlHeld && pressedF11) openDebugRoom(RunNodeType::Elite);
+            if (!ctrlHeld && pressedF12) openDebugRoom(RunNodeType::Boss);
+
+            if (ctrlHeld && pressedF7) openDebugRoom(RunNodeType::Event);
+            if (ctrlHeld && pressedF8) openCardPackPreview();
+            if (ctrlHeld && pressedF9) {
+                finishRunToEnding(true, "");
+            }
+            if (ctrlHeld && pressedF10) {
+                finishRunToEnding(false, to_string((std::max)(1, run.currentFloor)) + u8"층 디버그 패배 미리보기");
+            }
         }
 
         if (appState == AppState::Run && run.overlay != RunOverlayType::Ending) {
@@ -1229,7 +1513,10 @@ int main() {
         }
         else if (appState == AppState::Run) {
             const bool endingOverlayOpen = (run.overlay == RunOverlayType::Ending);
-            const bool allowHudOverlayToggle = (run.overlay != RunOverlayType::Confirm && !endingOverlayOpen);
+            const bool allowHudOverlayToggle =
+                (run.overlay != RunOverlayType::Confirm &&
+                 run.overlay != RunOverlayType::Settings &&
+                 !endingOverlayOpen);
 
             if (pressedMapHotkey && allowHudOverlayToggle && run.scene != RunSceneType::CardPackSelect) {
                 activeSliderId = -1;
@@ -1258,6 +1545,17 @@ int main() {
             if (run.overlay != RunOverlayType::Map) {
                 tooltip.SetVisible(false);
             }
+
+            bool tooltipClaimedThisFrame = false;
+            const auto showTooltipAtMouse = [&](const std::vector<std::string>& lines) {
+                if (lines.empty()) {
+                    return;
+                }
+                tooltip.SetText(lines);
+                tooltip.SetVisible(true);
+                tooltip.UpdatePosition(mouseX, mouseY, screen.GetWidth(), screen.GetHeight());
+                tooltipClaimedThisFrame = true;
+                };
 
             const string hpText = string(u8"체력: ") + to_string(run.player.currentHp) + "/" + to_string(run.player.maxHp);
             const string goldText = string(u8"골드: ") + to_string(run.gold);
@@ -1337,31 +1635,63 @@ int main() {
             btnSettings.Render(screen);
 
             if (run.scene == RunSceneType::CardPackSelect) {
-                const Rect headline = { screen.GetCenterX() - 32, 7, 64, 7 };
-                const Rect collapsedDetailRect = { screen.GetCenterX() - 26, 39, 52, 7 };
-                const Rect expandedDetailRect = { 2, 34, screen.GetWidth() - 4, (screen.GetHeight() - 9) - 34 };
+                const bool cardPackInputAllowed = (run.overlay == RunOverlayType::None);
+                const std::vector<int> offeredPackIndices = BuildStarterPackOfferIndices(run.seed, static_cast<int>(starterPacks.size()), 3);
+                const std::vector<std::string> playerCardPackArt = BuildCardPackPlayerArt();
+                const std::vector<std::string> neowArt = BuildNeowArt();
+                const int playerArtBottomY = screen.GetHeight() - 6;
+                const int neowArtBottomY = screen.GetHeight() - 4;
+                const int packPanelWidth = 24;
+                const int packPanelHeight = 18;
+                const int packGap = 3;
+                const int packTop = screen.GetHeight() - 22;
+                const int packRowWidth = static_cast<int>(offeredPackIndices.size()) * packPanelWidth +
+                    (static_cast<int>(offeredPackIndices.size()) - 1) * packGap;
+                const int packStartX = screen.GetCenterX() - (packRowWidth / 2);
+                const int detailBottomY = packTop - 2;
+                const int expandedDetailWidth = (std::max)(76, screen.GetWidth() - 80);
+                const Rect headline = { screen.GetCenterX() - 32, 6, 64, 6 };
+                const Rect collapsedDetailRect = { screen.GetCenterX() - 20, detailBottomY - 5, 40, 5 };
+                const Rect expandedDetailRect = { screen.GetCenterX() - (expandedDetailWidth / 2), detailBottomY - 21, expandedDetailWidth, 21 };
+                const Rect speechRect = { screen.GetWidth() - 38, 8, 22, 5 };
+
+                RenderAnchoredArt(screen, 22, playerArtBottomY, playerCardPackArt, COLOR_WHITE);
+                RenderAnchoredArt(screen, screen.GetWidth() - 18, neowArtBottomY, neowArt, COLOR_WHITE);
+
+                RenderFrameBox(screen, speechRect, COLOR_WHITE);
+                screen.DrawString(
+                    speechRect.x + 1,
+                    speechRect.y + 1,
+                    TextLayout::AlignToWidth(TextLayout::Utf8ToWide(u8"선택하여라..."), speechRect.width - 2, TextLayout::HorizontalAlign::Center),
+                    COLOR_WHITE);
+                screen.DrawString(speechRect.x + speechRect.width - 7, speechRect.y + speechRect.height - 1, "\\", COLOR_WHITE);
+                screen.DrawString(speechRect.x + speechRect.width - 6, speechRect.y + speechRect.height, " \\", COLOR_WHITE);
+
                 RenderFrameBox(screen, headline, COLOR_YELLOW);
                 screen.DrawString(
                     headline.x + 1,
                     headline.y + 1,
                     TextLayout::AlignToWidth(TextLayout::Utf8ToWide(u8"시너지 카드팩 선택"), headline.width - 2, TextLayout::HorizontalAlign::Center),
                     COLOR_YELLOW);
-                RenderWrappedText(screen, headline.x + 3, headline.y + 3, headline.width - 6, u8"첫 시작에서는 반드시 3개 중 하나의 카드팩을 고른 뒤 확인 버튼으로 런을 시작합니다.", COLOR_WHITE);
+                RenderWrappedText(screen, headline.x + 3, headline.y + 2, headline.width - 6, u8"첫 시작에서는 5개 중 랜덤한 3개 카드팩 중 하나를 고른 뒤 확인 버튼으로 런을 시작합니다.", COLOR_WHITE);
 
                 std::vector<Rect> packRects;
-                packRects.reserve(starterPacks.size());
+                packRects.reserve(offeredPackIndices.size());
                 int hoveredPackIndex = -1;
-                for (size_t packIndex = 0; packIndex < starterPacks.size(); ++packIndex) {
-                    const int panelWidth = 28;
-                    const int panelHeight = 20;
-                    const int startX = screen.GetCenterX() - 46 + static_cast<int>(packIndex) * 31;
-                    const Rect packRect = { startX, 15, panelWidth, panelHeight };
+                for (size_t offerSlot = 0; offerSlot < offeredPackIndices.size(); ++offerSlot) {
+                    const int packIndex = offeredPackIndices[offerSlot];
+                    const Rect packRect = {
+                        packStartX + static_cast<int>(offerSlot) * (packPanelWidth + packGap),
+                        packTop,
+                        packPanelWidth,
+                        packPanelHeight
+                    };
                     packRects.push_back(packRect);
-                    const bool hovered = packRect.Contains(mouseX, mouseY);
-                    const bool selected = (run.selectedStarterPackIndex == static_cast<int>(packIndex));
+                    const bool hovered = cardPackInputAllowed && packRect.Contains(mouseX, mouseY);
+                    const bool selected = (run.selectedStarterPackIndex == packIndex);
                     const WORD frameColor = selected || hovered ? starterPacks[packIndex].accentColor : COLOR_WHITE;
                     if (hovered) {
-                        hoveredPackIndex = static_cast<int>(packIndex);
+                        hoveredPackIndex = packIndex;
                     }
 
                     RenderFrameBox(screen, packRect, frameColor);
@@ -1370,17 +1700,17 @@ int main() {
 
                     int drawY = packRect.y + 8;
                     for (const CardData& card : starterPacks[packIndex].cards) {
-                        if (drawY >= packRect.y + panelHeight - 4) {
+                        if (drawY >= packRect.y + packPanelHeight - 4) {
                             break;
                         }
                         screen.DrawString(packRect.x + 2, drawY, BuildCardSummary(card), COLOR_WHITE);
                         drawY += 2;
                     }
 
-                    screen.DrawString(packRect.x + 2, packRect.y + panelHeight - 3, selected ? u8"선택됨" : u8"클릭하여 선택", selected ? frameColor : FOREGROUND_INTENSITY);
+                    screen.DrawString(packRect.x + 2, packRect.y + packPanelHeight - 3, selected ? u8"선택됨" : u8"클릭하여 선택", selected ? frameColor : FOREGROUND_INTENSITY);
                     if (hovered && input.IsLeftClickDown()) {
-                        run.selectedStarterPackIndex = static_cast<int>(packIndex);
-                        animatedPackIndex = static_cast<int>(packIndex);
+                        run.selectedStarterPackIndex = packIndex;
+                        animatedPackIndex = packIndex;
                         cardPackPanelProgress = (std::max)(cardPackPanelProgress, 0.35f);
                     }
                 }
@@ -1409,7 +1739,7 @@ int main() {
                     ? run.selectedStarterPackIndex
                     : animatedPackIndex;
                 const float easedPanelProgress = EaseInOutCubic(cardPackPanelProgress);
-                const Rect animatedDetailRect = LerpRectFixedTopCenter(collapsedDetailRect, expandedDetailRect, easedPanelProgress);
+                const Rect animatedDetailRect = LerpRectFixedBottomCenter(collapsedDetailRect, expandedDetailRect, easedPanelProgress);
                 const WORD detailColor =
                     (previewIndex >= 0 && previewIndex < static_cast<int>(starterPacks.size()))
                     ? starterPacks[static_cast<size_t>(previewIndex)].accentColor
@@ -1420,23 +1750,23 @@ int main() {
                 if (previewIndex >= 0 && previewIndex < static_cast<int>(starterPacks.size())) {
                     const CardPackOption& previewPack = starterPacks[static_cast<size_t>(previewIndex)];
                     const int stableTitleX = TextLayout::ComputeAlignedXUtf8(
-                        expandedDetailRect.x + 1,
-                        expandedDetailRect.width - 2,
+                        animatedDetailRect.x + 1,
+                        animatedDetailRect.width - 2,
                         previewPack.title,
                         TextLayout::HorizontalAlign::Center);
                     screen.DrawString(stableTitleX, animatedDetailRect.y + 1, previewPack.title, detailColor);
 
-                    const Rect packSummaryRect = { expandedDetailRect.x + expandedDetailRect.width / 2, expandedDetailRect.y + 4, expandedDetailRect.width / 2 - 4, 6 };
-                    const Rect cardDetailRect = { expandedDetailRect.x + expandedDetailRect.width / 2, expandedDetailRect.y + 12, expandedDetailRect.width / 2 - 4, 9 };
+                    const Rect packSummaryRect = { animatedDetailRect.x + 34, animatedDetailRect.y + 4, animatedDetailRect.width - 37, 5 };
+                    const Rect cardDetailRect = { animatedDetailRect.x + 34, animatedDetailRect.y + 10, animatedDetailRect.width - 37, 8 };
 
                     std::vector<Rect> cardPreviewRects;
                     cardPreviewRects.reserve(previewPack.cards.size());
                     const int previewCardWidth = 16;
-                    const int previewCardHeight = 7;
+                    const int previewCardHeight = 6;
                     const int previewCardGapX = 3;
-                    const int previewCardGapY = 2;
-                    const int cardGridLeft = expandedDetailRect.x + 3;
-                    const int cardGridTop = expandedDetailRect.y + 4;
+                    const int previewCardGapY = 1;
+                    const int cardGridLeft = animatedDetailRect.x + 3;
+                    const int cardGridTop = animatedDetailRect.y + 4;
 
                     for (size_t cardIndex = 0; cardIndex < previewPack.cards.size(); ++cardIndex) {
                         const int column = static_cast<int>(cardIndex % 2);
@@ -1480,10 +1810,19 @@ int main() {
                     }
 
                     if (RectFitsInside(animatedDetailRect, packSummaryRect)) {
+                        std::string recommendedStyle = u8"균형 운영";
+                        switch (previewPack.archetype) {
+                        case CardArchetype::Combo: recommendedStyle = u8"공격 템포"; break;
+                        case CardArchetype::Strength: recommendedStyle = u8"준비 후 폭발"; break;
+                        case CardArchetype::Block: recommendedStyle = u8"방어 반격"; break;
+                        case CardArchetype::Poison: recommendedStyle = u8"지속 압박"; break;
+                        case CardArchetype::Cycle: recommendedStyle = u8"순환 가속"; break;
+                        default: break;
+                        }
                         const std::vector<std::string> summaryLines = {
                             previewPack.description,
                             string(u8"포함 카드 수: ") + to_string(previewPack.cards.size()),
-                            string(u8"추천 성향: ") + (previewIndex == 0 ? u8"공격 템포" : (previewIndex == 1 ? u8"안정적인 운영" : u8"유틸과 변칙"))
+                            string(u8"추천 성향: ") + recommendedStyle
                         };
                         RenderTextBlock(screen, { packSummaryRect.x + 1, packSummaryRect.y, packSummaryRect.width - 2, packSummaryRect.height }, summaryLines, COLOR_WHITE);
                     }
@@ -1513,7 +1852,7 @@ int main() {
                 }
 
                 ButtonUI btnConfirm(screen.GetCenterX() - 12, screen.GetHeight() - 6, 24, 3, u8"이 카드팩으로 시작", COLOR_WHITE, COLOR_YELLOW);
-                if (run.selectedStarterPackIndex >= 0) {
+                if (run.selectedStarterPackIndex >= 0 && cardPackInputAllowed) {
                     btnConfirm.Update(input);
                 }
                 btnConfirm.Render(screen);
@@ -1701,8 +2040,8 @@ int main() {
                         const int combatBaselineY = screen.GetHeight() - 24;
                         const int combatPlayerY = combatBaselineY;
                         const int combatEnemyY = combatBaselineY;
-                        const Rect drawPileRect = { 2, screen.GetHeight() - 10, 10, 4 };
-                        const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 10, 10, 4 };
+                        const Rect drawPileRect = { 2, screen.GetHeight() - 9, 10, 4 };
+                        const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 9, 10, 4 };
                         const Rect energyRect = { (std::max)(14, combatPlayerX - 38), screen.GetHeight() - 17, 30, 9 };
                         Rect intentRect = { combatEnemyX - 11, 8, 24, 5 };
 
@@ -1849,7 +2188,7 @@ int main() {
                             const int cardSpacing = 28 - overlapChars;
                             const int totalHandWidth = cardCount > 0 ? (28 + (cardCount - 1) * cardSpacing) : 0;
                             const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
-                            const int handBaseY = screen.GetHeight() - 18;
+                            const int handBaseY = screen.GetHeight() - 17;
                             const bool allowCardInteraction = (run.overlay == RunOverlayType::None);
 
                             const auto recenterHandLayout = [&]() {
@@ -1929,12 +2268,22 @@ int main() {
                             }
 
                             CombatDropTarget dropTarget = CombatDropTarget::None;
+                            const Rect expandedDrawRect = {
+                                drawPileRect.x,
+                                drawPileRect.y - 8,
+                                drawPileRect.width + 14,
+                                drawPileRect.height + 8
+                            };
                             const Rect expandedDiscardRect = {
                                 discardPileRect.x - 26,
                                 discardPileRect.y - 14,
                                 discardPileRect.width + 26,
                                 discardPileRect.height + 14
                             };
+                            const bool canManualDraw = allowCardInteraction &&
+                                draggedHandIndex < 0 &&
+                                combatSystem->GetManualDrawCharges() > 0;
+                            const bool drawPileHovered = canManualDraw && expandedDrawRect.Contains(mouseX, mouseY);
                             if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
                                 const CardData& draggedCard = hand[static_cast<size_t>(draggedHandIndex)];
                                 const bool hasEnergy = draggedCard.cost <= combatSystem->GetEnergy();
@@ -1968,6 +2317,14 @@ int main() {
                             else if (discardPileExpandProgress > discardTargetProgress) {
                                 discardPileExpandProgress = (std::max)(discardTargetProgress, discardPileExpandProgress - discardAnimSpeed);
                             }
+                            const float drawTargetProgress = drawPileHovered ? 1.0f : 0.0f;
+                            if (drawPileExpandProgress < drawTargetProgress) {
+                                drawPileExpandProgress = (std::min)(drawTargetProgress, drawPileExpandProgress + discardAnimSpeed);
+                            }
+                            else if (drawPileExpandProgress > drawTargetProgress) {
+                                drawPileExpandProgress = (std::max)(drawTargetProgress, drawPileExpandProgress - discardAnimSpeed);
+                            }
+                            const Rect drawRenderRect = LerpRectFixedBottomLeft(drawPileRect, expandedDrawRect, EaseOutCubic(drawPileExpandProgress));
                             const Rect discardRenderRect = LerpRectFixedBottomRight(discardPileRect, expandedDiscardRect, EaseOutCubic(discardPileExpandProgress));
 
                             if (playerEntityUi) {
@@ -2008,6 +2365,16 @@ int main() {
                                         escapeRequested = true;
                                         break;
                                     }
+                                }
+                            }
+
+                            if (drawPileHovered && input.IsLeftClickDown()) {
+                                const CombatActionResult drawResult = combatSystem->TryManualDrawFromPile();
+                                if (drawResult.success) {
+                                    audio.PlayEffect(L"card_draw.wav", L"sfx_draw");
+                                }
+                                else {
+                                    audio.PlayEffect(L"energy_fail.wav", L"sfx_energy_fail");
                                 }
                             }
 
@@ -2072,9 +2439,13 @@ int main() {
                                 audio.PlayEffect(L"energy_fail.wav", L"sfx_overdraw");
                             }
 
-                            RenderFrameBox(screen, drawPileRect, COLOR_WHITE);
-                            screen.DrawString(drawPileRect.x + 2, drawPileRect.y + 1, u8"뽑기", COLOR_WHITE);
-                            screen.DrawString(drawPileRect.x + 2, drawPileRect.y + 2, string("Count ") + to_string(combatSystem->GetDrawPileCount()), COLOR_WHITE);
+                            const WORD drawPileColor = drawPileHovered ? COLOR_YELLOW : COLOR_WHITE;
+                            RenderFrameBox(screen, drawRenderRect, drawPileColor);
+                            screen.DrawString(drawRenderRect.x + 2, drawRenderRect.y + 1, u8"뽑기", drawPileColor);
+                            screen.DrawString(drawRenderRect.x + 2, drawRenderRect.y + 2, string("Count ") + to_string(combatSystem->GetDrawPileCount()), COLOR_WHITE);
+                            if (combatSystem->GetManualDrawCharges() > 0 && drawRenderRect.height >= 5) {
+                                screen.DrawString(drawRenderRect.x + 2, drawRenderRect.y + 3, string(u8"성급 ") + to_string(combatSystem->GetManualDrawCharges()), drawPileColor);
+                            }
 
                             RenderFrameBox(screen, discardRenderRect, dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
                             screen.DrawString(discardRenderRect.x + 2, discardRenderRect.y + 1, u8"버리기", dropTarget == CombatDropTarget::DiscardPile ? COLOR_YELLOW : COLOR_WHITE);
@@ -2103,6 +2474,74 @@ int main() {
                             if (enemyEntityUi) {
                                 enemyEntityUi->Render(screen);
                             }
+
+                            const auto renderEntityStatusHud = [&](EntityUI* entityUi, const EntityData& entityData) {
+                                if (entityUi == nullptr) {
+                                    return;
+                                }
+
+                                const int barX = entityUi->GetHealthBarX();
+                                const int barY = entityUi->GetHealthBarY();
+                                const int barWidth = entityUi->GetHealthBarWidth();
+                                const bool inputEnabled = (run.overlay == RunOverlayType::None);
+
+                                if (entityData.poison > 0) {
+                                    const std::string poisonText = std::string(u8"독 ") + std::to_string(entityData.poison);
+                                    const int poisonX = barX + barWidth + 2;
+                                    const Rect poisonRect = { poisonX, barY, TextLayout::MeasureDisplayWidthUtf8(poisonText), 1 };
+                                    screen.DrawString(poisonX, barY, poisonText, COLOR_GREEN);
+                                    if (inputEnabled && poisonRect.Contains(mouseX, mouseY)) {
+                                        showTooltipAtMouse(BuildStatusTooltipLines(u8"독", entityData.poison));
+                                    }
+                                }
+
+                                int nextStatusLineY = barY + 1;
+                                if (entityData.block > 0) {
+                                    const std::string blockText = std::string(u8"방어도 ") + std::to_string(entityData.block);
+                                    const int blockX = TextLayout::ComputeAlignedXUtf8(barX, barWidth, blockText, TextLayout::HorizontalAlign::Center);
+                                    const Rect blockRect = { blockX, nextStatusLineY, TextLayout::MeasureDisplayWidthUtf8(blockText), 1 };
+                                    screen.DrawString(blockX, nextStatusLineY, blockText, COLOR_BLUE);
+                                    if (inputEnabled && blockRect.Contains(mouseX, mouseY)) {
+                                        showTooltipAtMouse(BuildStatusTooltipLines(u8"방어도", entityData.block));
+                                    }
+                                    ++nextStatusLineY;
+                                }
+
+                                struct StatusToken {
+                                    std::string label;
+                                    int value = 0;
+                                    WORD color = COLOR_WHITE;
+                                };
+
+                                std::vector<StatusToken> tokens;
+                                if (entityData.strength > 0) {
+                                    tokens.push_back({ u8"힘", entityData.strength, COLOR_RED });
+                                }
+                                if (entityData.dexterity > 0) {
+                                    tokens.push_back({ u8"민첩", entityData.dexterity, FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY });
+                                }
+                                if (entityData.vulnerable > 0) {
+                                    tokens.push_back({ u8"취약", entityData.vulnerable, COLOR_RED });
+                                }
+                                if (entityData.weak > 0) {
+                                    tokens.push_back({ u8"약화", entityData.weak, COLOR_GREEN });
+                                }
+
+                                int tokenX = barX;
+                                for (const StatusToken& token : tokens) {
+                                    const std::string tokenText = token.label + std::to_string(token.value);
+                                    const int tokenWidth = TextLayout::MeasureDisplayWidthUtf8(tokenText);
+                                    const Rect tokenRect = { tokenX, nextStatusLineY, tokenWidth, 1 };
+                                    screen.DrawString(tokenX, nextStatusLineY, tokenText, token.color);
+                                    if (inputEnabled && tokenRect.Contains(mouseX, mouseY)) {
+                                        showTooltipAtMouse(BuildStatusTooltipLines(token.label, token.value));
+                                    }
+                                    tokenX += tokenWidth + 2;
+                                }
+                                };
+
+                            renderEntityStatusHud(playerEntityUi.get(), run.player);
+                            renderEntityStatusHud(enemyEntityUi.get(), run.battleRoom.enemy);
 
                             std::vector<int> renderOrder;
                             renderOrder.reserve(static_cast<size_t>(cardCount));
@@ -2273,7 +2712,7 @@ int main() {
                             screen.DrawString(offerRect.x + 2, offerRect.y + 2, string(u8"가격 ") + to_string(offer.price) + "G", COLOR_YELLOW);
                             RenderWrappedText(screen, offerRect.x + 2, offerRect.y + 3, offerRect.width - 4, offer.sold ? u8"구매 완료" : offer.description, COLOR_WHITE);
 
-                            if (!offer.sold && hovered && input.IsLeftClickDown()) {
+                            if (!offer.sold && hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
                                 if (run.gold < offer.price) {
                                     run.shopRoom.noticeText = u8"골드가 부족합니다.";
                                 }
@@ -2341,7 +2780,7 @@ int main() {
                                 const bool hovered = rowRect.Contains(mouseX, mouseY);
                                 screen.DrawString(rowRect.x, rowRect.y, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCardSummary(run.deck[cardIndex])), rowRect.width, TextLayout::HorizontalAlign::Left), hovered ? COLOR_YELLOW : COLOR_WHITE);
 
-                                if (hovered && input.IsLeftClickDown()) {
+                                if (hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
                                     if (run.shopRoom.removalUsed) {
                                         run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
                                     }
@@ -2451,7 +2890,7 @@ int main() {
                                 screen.DrawString(choiceRect.x + 2, choiceRect.y + 1, choice.title, hovered ? COLOR_YELLOW : COLOR_WHITE);
                                 RenderWrappedText(screen, choiceRect.x + 2, choiceRect.y + 3, choiceRect.width - 4, choice.description, COLOR_WHITE);
 
-                                if (hovered && input.IsLeftClickDown()) {
+                                if (hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
                                     if (choice.grantPotion && !HasPotionSlot(run)) {
                                         run.treasureRoom.noticeText = u8"포션 칸이 가득 차서 이 보상은 받을 수 없습니다.";
                                     }
@@ -2588,9 +3027,7 @@ int main() {
                 int hoveredNodeId = -1;
                 vector<string> tooltipLines;
                 if (mapRenderer.TryGetHoveredNodeId(mouseX, mouseY, hoveredNodeId) && mapRenderer.TryGetNodeTooltip(mouseX, mouseY, tooltipLines)) {
-                    tooltip.SetText(tooltipLines);
-                    tooltip.SetVisible(true);
-                    tooltip.UpdatePosition(mouseX, mouseY, screen.GetWidth(), screen.GetHeight());
+                    showTooltipAtMouse(tooltipLines);
 
                     const bool canSelectNode = (run.currentNodeId < 0 || run.roomResolved) && CanEnterNode(run, hoveredNodeId);
                     if (canSelectNode && input.IsLeftClickDown()) {
@@ -2756,6 +3193,10 @@ int main() {
                         transitionToTitle();
                     }
                 }
+            }
+
+            if (!tooltipClaimedThisFrame && run.overlay != RunOverlayType::Map) {
+                tooltip.SetVisible(false);
             }
 
             if (tooltip.IsVisible()) {

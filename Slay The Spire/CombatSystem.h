@@ -1,9 +1,9 @@
-// -----------------------------------------------------------------------------
+﻿// -----------------------------------------------------------------------------
 // @file       CombatSystem.h
 // @brief      Real-time combat state and rule execution for the prototype.
 // -----------------------------------------------------------------------------
 #pragma once
-#include "GameData.h"
+#include "CardLibrary.h"
 #include <random>
 #include <string>
 #include <vector>
@@ -22,14 +22,14 @@ enum class EnemyIntentType {
 };
 
 struct CombatConfig {
-    float baseDrawIntervalSec = 1.5f;
-    float minDrawIntervalSec = 0.7f;
-    float baseEnergyIntervalSec = 2.0f;
-    float minEnergyIntervalSec = 0.9f;
-    float baseEnemyIntentIntervalSec = 6.0f;
-    float minEnemyIntentIntervalSec = 2.0f;
-    float speedGainPerEnemyAction = 0.05f;
-    float dragSlowStrength = 0.04f;
+    float baseDrawIntervalSec = 3.1f;
+    float minDrawIntervalSec = 1.3f;
+    float baseEnergyIntervalSec = 3.2f;
+    float minEnergyIntervalSec = 1.7f;
+    float baseEnemyIntentIntervalSec = 14.0f;
+    float minEnemyIntentIntervalSec = 8.0f;
+    float speedGainPerEnemyAction = 0.035f;
+    float dragSlowStrength = 0.08f;
     int startingHandSize = 5;
     int handLimit = 8;
     int startingEnergy = 3;
@@ -70,6 +70,11 @@ struct CombatActionResult {
     std::string message;
 };
 
+struct DelayedEnergyGain {
+    float remainingSec = 0.0f;
+    int amount = 0;
+};
+
 class CombatSystem {
 private:
     EntityData* player;
@@ -86,25 +91,79 @@ private:
     float drawElapsedSec;
     float energyElapsedSec;
     float enemyIntentElapsedSec;
+    float currentEnemyIntentBaseIntervalSec;
+    float drawIntervalMultiplier;
+    float playerBlockDecayElapsedSec;
+    float noAttackElapsedSec;
 
     int energy;
+    int maxEnergyBonus;
+    int handLimitModifier;
+    int comboCount;
+    int manualDrawCharges;
+    int manualDrawChargesOnEnemyAction;
+    int totalBattleDraws;
+    int totalBattleDiscards;
+    int nextAttackBonus;
+    int basicStrikeBonus;
+    int basicDefendBonus;
+    int discardDamageCounter;
+    int poisonOnAttack;
+    int poisonOnBlockGain;
+    int damageOnBlockGain;
+    int poisonDamageBonusOnEnemyAction;
+    int strengthOnEnemyAction;
+    int warmupStrengthAmount;
+    int bonusStrengthGainWhenEnemyAttacks;
+    int drawsPerStrengthGain;
+    int poisonOnBeingHit;
+    int drawGaugePercentOnDiscard;
+    int extraDrawsOnDiscard;
+    int extraEnergyOnDiscard;
+    int speedAddictionStacks;
+    int energyOnEnemyActionEnd;
+    float attackDelayOnHitSec;
     bool battleOver;
     bool playerWon;
     bool enemyTimedBlockActive;
+    bool comboEnabled;
+    bool blockDecayActive;
+    bool overloadActive;
 
     std::mt19937 rng;
+    std::vector<DelayedEnergyGain> delayedEnergyGains;
 
     float GetScaledDrawIntervalSec() const;
     float GetScaledEnergyIntervalSec() const;
     float GetScaledEnemyIntentIntervalSec() const;
+    float GetPassiveTimeScale(float timeScale) const;
 
     void ShuffleDrawPile();
     void ShuffleDiscardIntoDrawPile();
-    bool TryDrawOne();
+    bool TryDrawOne(bool countAsBattleDraw = true);
+    void RefreshRuntimeCardTexts();
+    void RefreshCardText(CardData& card);
     void SpendEnergy(int amount);
     void GainEnergy(int amount);
     int ApplyDamageToTarget(EntityData& target, int rawDamage);
     int ApplyOutgoingModifiers(const EntityData& attacker, const EntityData& target, int rawDamage) const;
+    int BuildAttackDamagePerHit(const CardData& card, int baseDamagePerHit) const;
+    int ApplyHitToEnemy(const CardData& card, int baseDamagePerHit, CombatActionResult& result);
+    void GainPlayerBlock(int amount, CombatActionResult* actionResult = nullptr, bool applyDexterity = true);
+    void GainPlayerStrength(int amount, CombatActionResult* actionResult = nullptr);
+    void GainPlayerDexterity(int amount);
+    void AddCurrentEnemyIntentTime(float amountSec);
+    void IncreaseEnemyIntentBaseInterval(float amountSec);
+    void ResetEnemyIntentTimer();
+    void UpdatePlayerBlockDecay(float deltaTimeSec, float timeScale);
+    void UpdatePassiveTimers(float deltaTimeSec, float timeScale, CombatFrameResult& result);
+    void OnCardDiscarded(CardData& discardedCard, CombatActionResult& result, bool countDiscard, bool removedFromHand);
+    void DiscardCardFromHand(int handIndex, CombatActionResult& result);
+    void ExhaustCard(const CardData& card);
+    bool ReturnReusableCardToHand(CardData card, int handIndex, CombatActionResult& result);
+    void CommitUsedCard(CardData card, int handIndex, CombatActionResult& result);
+    int ResolveDiscardAllFromHand(CombatActionResult& result);
+    void AdvanceDrawGaugeByPercent(float ratio, CombatActionResult& result);
     void HandleEndOfEnemyAction(CombatFrameResult& result);
     void RollNextIntent();
     void ExecuteEnemyIntent(CombatFrameResult& result);
@@ -122,20 +181,29 @@ public:
 
     CombatActionResult TryUseCard(int handIndex, CombatDropTarget target);
     CombatActionResult TryDiscardCard(int handIndex);
+    CombatActionResult TryManualDrawFromPile();
     void AddEnergy(int amount);
 
     const std::vector<CardData>& GetHand() const { return hand; }
     const EnemyIntentState& GetCurrentIntent() const { return currentIntent; }
+    CardLibrary::CardTextContext BuildCardTextContext() const;
 
     int GetEnergy() const { return energy; }
-    int GetMaxEnergy() const { return config.maxEnergy; }
+    int GetMaxEnergy() const { return config.maxEnergy + maxEnergyBonus; }
     int GetDrawPileCount() const { return static_cast<int>(drawPile.size()); }
     int GetDiscardPileCount() const { return static_cast<int>(discardPile.size()); }
-    int GetHandLimit() const { return config.handLimit; }
+    int GetHandLimit() const { return (std::max)(1, config.handLimit); }
+    int GetCurrentHandLimit() const { return (std::max)(1, config.handLimit + handLimitModifier); }
     float GetSpeedMultiplier() const { return speedMultiplier; }
     float GetEnemyIntentRemainingSec() const;
     float GetEnemyIntentProgress01() const;
     float GetDragTimeScale() const;
+    int GetComboCount() const { return comboCount; }
+    bool IsComboEnabled() const { return comboEnabled; }
+    int GetPlayerDexterity() const { return player != nullptr ? player->dexterity : 0; }
+    int GetManualDrawCharges() const { return manualDrawCharges; }
+    int GetTotalBattleDraws() const { return totalBattleDraws; }
+    int GetTotalBattleDiscards() const { return totalBattleDiscards; }
 
     bool IsBattleOver() const { return battleOver; }
     bool DidPlayerWin() const { return playerWon; }

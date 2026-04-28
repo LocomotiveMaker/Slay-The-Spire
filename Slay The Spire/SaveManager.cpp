@@ -11,7 +11,7 @@
 
 namespace {
 
-constexpr int kSaveFormatVersion = 1;
+constexpr int kSaveFormatVersion = 2;
 
 std::filesystem::path GetModuleDirectory() {
     wchar_t modulePath[MAX_PATH] = {};
@@ -55,16 +55,32 @@ std::filesystem::path GetStatsPath() {
 void WriteCard(std::ostream& out, const CardData& card) {
     out << "CARD "
         << card.id << ' '
+        << std::quoted(card.baseName) << ' '
         << std::quoted(card.name) << ' '
         << card.cost << ' '
+        << std::quoted(card.baseDescription) << ' '
         << std::quoted(card.description) << ' '
         << static_cast<int>(card.type) << ' '
         << static_cast<int>(card.targetType) << ' '
         << static_cast<int>(card.effectType) << ' '
         << static_cast<int>(card.discardEffectType) << ' '
+        << static_cast<int>(card.rarity) << ' '
+        << static_cast<int>(card.archetype) << ' '
+        << static_cast<int>(card.starterPackOnly) << ' '
+        << static_cast<int>(card.exhausts) << ' '
+        << static_cast<int>(card.uniquePower) << ' '
         << card.primaryValue << ' '
         << card.secondaryValue << ' '
-        << card.upgradeLevel << '\n';
+        << card.tertiaryValue << ' '
+        << card.quaternaryValue << ' '
+        << card.upgradeLevel << ' '
+        << card.baseReuseCount << ' '
+        << card.remainingReuseCount << ' '
+        << card.discardRequirement << ' '
+        << card.discardProgress << ' '
+        << card.timesUsedThisBattle << ' '
+        << card.runtimePrimaryModifier << ' '
+        << card.runtimeSecondaryModifier << '\n';
 }
 
 bool ReadCard(std::istream& in, CardData& card) {
@@ -77,23 +93,55 @@ bool ReadCard(std::istream& in, CardData& card) {
     int targetType = 0;
     int effectType = 0;
     int discardEffectType = 0;
+    int rarity = 0;
+    int archetype = 0;
+    int starterPackOnly = 0;
+    int exhausts = 0;
+    int uniquePower = 0;
 
     in >> card.id
+        >> std::quoted(card.baseName)
         >> std::quoted(card.name)
         >> card.cost
+        >> std::quoted(card.baseDescription)
         >> std::quoted(card.description)
         >> type
         >> targetType
         >> effectType
         >> discardEffectType
+        >> rarity
+        >> archetype
+        >> starterPackOnly
+        >> exhausts
+        >> uniquePower
         >> card.primaryValue
         >> card.secondaryValue
-        >> card.upgradeLevel;
+        >> card.tertiaryValue
+        >> card.quaternaryValue
+        >> card.upgradeLevel
+        >> card.baseReuseCount
+        >> card.remainingReuseCount
+        >> card.discardRequirement
+        >> card.discardProgress
+        >> card.timesUsedThisBattle
+        >> card.runtimePrimaryModifier
+        >> card.runtimeSecondaryModifier;
 
     card.type = static_cast<CardType>(type);
     card.targetType = static_cast<CardTargetType>(targetType);
     card.effectType = static_cast<CardEffectType>(effectType);
     card.discardEffectType = static_cast<CardDiscardEffectType>(discardEffectType);
+    card.rarity = static_cast<CardRarity>(rarity);
+    card.archetype = static_cast<CardArchetype>(archetype);
+    card.starterPackOnly = (starterPackOnly != 0);
+    card.exhausts = (exhausts != 0);
+    card.uniquePower = (uniquePower != 0);
+    if (card.baseName.empty()) {
+        card.baseName = card.name;
+    }
+    if (card.baseDescription.empty()) {
+        card.baseDescription = card.description;
+    }
     return !in.fail();
 }
 
@@ -194,6 +242,7 @@ void WriteSnapshot(std::ostream& out, const NodeEntrySnapshot& snapshot) {
         << snapshot.player.maxHp << ' '
         << snapshot.player.block << ' '
         << snapshot.player.strength << ' '
+        << snapshot.player.dexterity << ' '
         << snapshot.player.vulnerable << ' '
         << snapshot.player.weak << ' '
         << snapshot.player.poison << '\n';
@@ -305,6 +354,7 @@ void WriteBattleRoom(std::ostream& out, const BattleRoomState& battleRoom) {
         << battleRoom.enemy.maxHp << ' '
         << battleRoom.enemy.block << ' '
         << battleRoom.enemy.strength << ' '
+        << battleRoom.enemy.dexterity << ' '
         << battleRoom.enemy.vulnerable << ' '
         << battleRoom.enemy.weak << ' '
         << battleRoom.enemy.poison << '\n';
@@ -333,6 +383,7 @@ bool ReadBattleRoom(std::istream& in, BattleRoomState& battleRoom) {
         >> battleRoom.enemy.maxHp
         >> battleRoom.enemy.block
         >> battleRoom.enemy.strength
+        >> battleRoom.enemy.dexterity
         >> battleRoom.enemy.vulnerable
         >> battleRoom.enemy.weak
         >> battleRoom.enemy.poison;
@@ -574,6 +625,11 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
         }
         else if (tag == "PLAYER_NAME") in >> std::quoted(run.playerName);
         else if (tag == "SELECTED_PACK") in >> std::quoted(run.selectedCardPackTitle);
+        else if (tag == "SELECTED_PACK_ARCHETYPE") {
+            int value = 0;
+            in >> value;
+            run.selectedCardPackArchetype = static_cast<CardArchetype>(value);
+        }
         else if (tag == "FAILURE_REASON") in >> std::quoted(run.failureReasonText);
         else if (tag == "ROOM_SUMMARY_TITLE") in >> std::quoted(run.currentRoomSummaryTitle);
         else if (tag == "ROOM_SUMMARY_TEXT") in >> std::quoted(run.currentRoomSummaryText);
@@ -584,6 +640,7 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
                 >> run.player.maxHp
                 >> run.player.block
                 >> run.player.strength
+                >> run.player.dexterity
                 >> run.player.vulnerable
                 >> run.player.weak
                 >> run.player.poison;
@@ -638,6 +695,7 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
                 >> run.nodeEntrySnapshot.player.maxHp
                 >> run.nodeEntrySnapshot.player.block
                 >> run.nodeEntrySnapshot.player.strength
+                >> run.nodeEntrySnapshot.player.dexterity
                 >> run.nodeEntrySnapshot.player.vulnerable
                 >> run.nodeEntrySnapshot.player.weak
                 >> run.nodeEntrySnapshot.player.poison;
@@ -707,6 +765,7 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
                     >> run.battleRoom.enemy.maxHp
                     >> run.battleRoom.enemy.block
                     >> run.battleRoom.enemy.strength
+                    >> run.battleRoom.enemy.dexterity
                     >> run.battleRoom.enemy.vulnerable
                     >> run.battleRoom.enemy.weak
                     >> run.battleRoom.enemy.poison;
@@ -815,11 +874,12 @@ bool SaveManager::SaveContinueRun(const RunStateData& run) {
     out << "LOSE_RECORD_COMMITTED " << static_cast<int>(sanitized.loseRecordCommitted) << '\n';
     out << "PLAYER_NAME " << std::quoted(sanitized.playerName) << '\n';
     out << "SELECTED_PACK " << std::quoted(sanitized.selectedCardPackTitle) << '\n';
+    out << "SELECTED_PACK_ARCHETYPE " << static_cast<int>(sanitized.selectedCardPackArchetype) << '\n';
     out << "FAILURE_REASON " << std::quoted(sanitized.failureReasonText) << '\n';
     out << "ROOM_SUMMARY_TITLE " << std::quoted(sanitized.currentRoomSummaryTitle) << '\n';
     out << "ROOM_SUMMARY_TEXT " << std::quoted(sanitized.currentRoomSummaryText) << '\n';
     out << "PLAYER " << sanitized.player.id << ' ' << std::quoted(sanitized.player.name) << ' ' << sanitized.player.currentHp << ' ' << sanitized.player.maxHp << ' '
-        << sanitized.player.block << ' ' << sanitized.player.strength << ' ' << sanitized.player.vulnerable << ' ' << sanitized.player.weak << ' ' << sanitized.player.poison << '\n';
+        << sanitized.player.block << ' ' << sanitized.player.strength << ' ' << sanitized.player.dexterity << ' ' << sanitized.player.vulnerable << ' ' << sanitized.player.weak << ' ' << sanitized.player.poison << '\n';
     out << "SCENE " << static_cast<int>(sanitized.scene) << '\n';
     out << "OVERLAY " << static_cast<int>(sanitized.overlay) << '\n';
     out << "CONFIRM " << static_cast<int>(sanitized.pendingConfirm) << '\n';

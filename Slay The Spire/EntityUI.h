@@ -38,6 +38,9 @@ public:
     int GetArtBottomY() const { return anchorBottomY; }
     int GetArtWidth() const { return artWidth; }
     int GetArtHeight() const { return artHeight; }
+    int GetHealthBarX() const { return anchorCenterX - (healthBarWidth / 2); }
+    int GetHealthBarY() const { return anchorBottomY + 2; }
+    int GetHealthBarWidth() const { return healthBarWidth; }
 
     // UIElement 오버라이드
     bool Update(InputManager& input) override;

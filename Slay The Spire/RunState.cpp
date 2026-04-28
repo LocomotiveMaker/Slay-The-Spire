@@ -2,6 +2,7 @@
 // @file       RunState.cpp
 // -----------------------------------------------------------------------------
 #include "RunState.h"
+#include "CardLibrary.h"
 #include "ScreenManager.h"
 
 #include <algorithm>
@@ -60,17 +61,7 @@ PotionData MakePotion(int id, const std::string& name, const std::string& descri
 }
 
 std::vector<CardData> BuildGeneralCardPool() {
-    return {
-        MakeCard(2000, u8"강타", 1, u8"적에게 6 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 6, 0),
-        MakeCard(2001, u8"강타+", 1, u8"적에게 8 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 8, 0),
-        MakeCard(2002, u8"수비", 1, u8"방어도 5를 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 5, 0),
-        MakeCard(2003, u8"수비+", 1, u8"방어도 7을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 7, 0),
-        MakeCard(2004, u8"재정비", 0, u8"버릴 때 카드 1장을 뽑고 에너지 1을 얻습니다.", CardType::Skill, CardTargetType::None, CardEffectType::None, CardDiscardEffectType::DrawCardsGainEnergy, 1, 1),
-        MakeCard(2005, u8"악점 노출", 2, u8"적에게 취약 2를 부여합니다.", CardType::Skill, CardTargetType::Enemy, CardEffectType::ApplyVulnerable, CardDiscardEffectType::None, 2, 0),
-        MakeCard(2006, u8"분쇄 타격", 2, u8"적에게 12 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 12, 0),
-        MakeCard(2007, u8"굳건한 자세", 2, u8"방어도 10을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 10, 0),
-        MakeCard(2008, u8"휘몰아치기", 1, u8"적에게 7 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 7, 0)
-    };
+    return CardLibrary::BuildGeneralCardPool();
 }
 
 std::vector<RelicData> BuildRelicPool() {
@@ -141,7 +132,33 @@ void InitializeShopRoom(RunStateData& run) {
     run.shopRoom.removalPrice = 75;
     run.shopRoom.noticeText = u8"카드 제거, 카드 구매, 유물 구매, 포션 구매를 한 번에 시험할 수 있습니다.";
 
-    const std::vector<CardData> cardOffers = PickDistinctFromPool(cardPool, rng, 3);
+    std::vector<CardData> cardOffers;
+    std::vector<CardData> favoredPool = CardLibrary::BuildArchetypeRewardPool(run.selectedCardPackArchetype);
+    std::vector<CardData> fallbackPool = cardPool;
+
+    auto eraseChosenFromPool = [](std::vector<CardData>& pool, int cardId) {
+        pool.erase(
+            std::remove_if(
+                pool.begin(),
+                pool.end(),
+                [cardId](const CardData& card) { return card.id == cardId; }),
+            pool.end());
+    };
+
+    const int guaranteedFavoredCount = (run.selectedCardPackArchetype == CardArchetype::None) ? 0 : 2;
+    for (int index = 0; index < guaranteedFavoredCount && !favoredPool.empty(); ++index) {
+        const CardData favoredCard = PickFromPool(favoredPool, rng);
+        cardOffers.push_back(favoredCard);
+        eraseChosenFromPool(favoredPool, favoredCard.id);
+        eraseChosenFromPool(fallbackPool, favoredCard.id);
+    }
+
+    while (static_cast<int>(cardOffers.size()) < 3 && !fallbackPool.empty()) {
+        const CardData pickedCard = PickFromPool(fallbackPool, rng);
+        cardOffers.push_back(pickedCard);
+        eraseChosenFromPool(fallbackPool, pickedCard.id);
+    }
+
     for (size_t index = 0; index < cardOffers.size(); ++index) {
         ShopOfferState offer = {};
         offer.id = 5000 + static_cast<int>(index);
@@ -149,7 +166,7 @@ void InitializeShopRoom(RunStateData& run) {
         offer.card = cardOffers[index];
         offer.title = cardOffers[index].name;
         offer.description = cardOffers[index].description;
-        offer.price = 45 + (cardOffers[index].cost * 15);
+        offer.price = 45 + (cardOffers[index].cost * 15) + (cardOffers[index].rarity == CardRarity::Rare ? 40 : (cardOffers[index].rarity == CardRarity::Uncommon ? 15 : 0));
         run.shopRoom.offers.push_back(offer);
     }
 
@@ -175,12 +192,12 @@ void InitializeShopRoom(RunStateData& run) {
 EntityData BuildEnemyTemplateForRoom(RunNodeType type) {
     switch (type) {
     case RunNodeType::Elite:
-        return { 9100, u8"수호 슬라임", 72, 72, 0, 1, 0, 0, 0 };
+        return { 9100, u8"수호 슬라임", 72, 72, 0, 1, 0, 0, 0, 0 };
     case RunNodeType::Boss:
-        return { 9200, u8"수호자 프로토타입", 130, 130, 0, 2, 0, 0, 0 };
+        return { 9200, u8"수호자 프로토타입", 130, 130, 0, 2, 0, 0, 0, 0 };
     case RunNodeType::Battle:
     default:
-        return { 9000, u8"훈련용 슬라임", 48, 48, 0, 0, 0, 0, 0 };
+        return { 9000, u8"훈련용 슬라임", 48, 48, 0, 0, 0, 0, 0, 0 };
     }
 }
 
@@ -947,48 +964,51 @@ std::string BuildTimestampText() {
 std::vector<CardPackOption> BuildStarterCardPacks() {
     std::vector<CardPackOption> packs;
 
-    CardPackOption bleedPack = {};
-    bleedPack.id = 0;
-    bleedPack.title = u8"핏빛 맹공";
-    bleedPack.description = u8"공격 카드와 취약 부여로 템포를 먼저 쥐는 패키지입니다.";
-    bleedPack.accentColor = COLOR_RED;
-    bleedPack.cards = {
-        MakeCard(1000, u8"강타+", 1, u8"적에게 8 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 8, 0),
-        MakeCard(1001, u8"강타", 1, u8"적에게 6 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 6, 0),
-        MakeCard(1002, u8"악점 노출", 2, u8"적에게 취약 2를 부여합니다.", CardType::Skill, CardTargetType::Enemy, CardEffectType::ApplyVulnerable, CardDiscardEffectType::None, 2, 0),
-        MakeCard(1003, u8"재정비", 0, u8"버릴 때 카드 1장을 뽑고 에너지 1을 얻습니다.", CardType::Skill, CardTargetType::None, CardEffectType::None, CardDiscardEffectType::DrawCardsGainEnergy, 1, 1),
-        MakeCard(1004, u8"분쇄 타격", 2, u8"적에게 12 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 12, 0)
-    };
+    CardPackOption comboPack = {};
+    comboPack.id = 0;
+    comboPack.archetype = CardArchetype::Combo;
+    comboPack.title = u8"연타 장전";
+    comboPack.description = u8"콤보와 적 시간 지연으로 템포를 틀어쥐는 패키지입니다.";
+    comboPack.accentColor = COLOR_RED;
+    comboPack.cards = CardLibrary::BuildStarterPackCards(comboPack.archetype);
+    packs.push_back(comboPack);
 
-    CardPackOption shieldPack = {};
-    shieldPack.id = 1;
-    shieldPack.title = u8"강철 방벽";
-    shieldPack.description = u8"안정적인 방어와 손패 정리용 카드가 묶인 패키지입니다.";
-    shieldPack.accentColor = COLOR_BLUE;
-    shieldPack.cards = {
-        MakeCard(1010, u8"수비+", 1, u8"방어도 7을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 7, 0),
-        MakeCard(1011, u8"수비", 1, u8"방어도 5를 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 5, 0),
-        MakeCard(1012, u8"굳건한 자세", 2, u8"방어도 10을 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 10, 0),
-        MakeCard(1013, u8"재정비", 0, u8"버릴 때 카드 1장을 뽑고 에너지 1을 얻습니다.", CardType::Skill, CardTargetType::None, CardEffectType::None, CardDiscardEffectType::DrawCardsGainEnergy, 1, 1),
-        MakeCard(1014, u8"강타", 1, u8"적에게 6 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 6, 0)
-    };
+    CardPackOption strengthPack = {};
+    strengthPack.id = 1;
+    strengthPack.archetype = CardArchetype::Strength;
+    strengthPack.title = u8"근력 폭주";
+    strengthPack.description = u8"초반에는 준비하고 후반에는 힘으로 밀어붙이는 패키지입니다.";
+    strengthPack.accentColor = COLOR_RED | FOREGROUND_INTENSITY;
+    strengthPack.cards = CardLibrary::BuildStarterPackCards(strengthPack.archetype);
+    packs.push_back(strengthPack);
 
-    CardPackOption venomPack = {};
-    venomPack.id = 2;
-    venomPack.title = u8"맹독 실험";
-    venomPack.description = u8"취약과 유틸을 활용해 상황을 비트는 패키지입니다.";
-    venomPack.accentColor = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-    venomPack.cards = {
-        MakeCard(1020, u8"악점 노출", 2, u8"적에게 취약 2를 부여합니다.", CardType::Skill, CardTargetType::Enemy, CardEffectType::ApplyVulnerable, CardDiscardEffectType::None, 2, 0),
-        MakeCard(1021, u8"강타", 1, u8"적에게 6 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 6, 0),
-        MakeCard(1022, u8"수비", 1, u8"방어도 5를 얻습니다.", CardType::Skill, CardTargetType::Self, CardEffectType::DefendBlock, CardDiscardEffectType::None, 5, 0),
-        MakeCard(1023, u8"재정비", 0, u8"버릴 때 카드 1장을 뽑고 에너지 1을 얻습니다.", CardType::Skill, CardTargetType::None, CardEffectType::None, CardDiscardEffectType::DrawCardsGainEnergy, 1, 1),
-        MakeCard(1024, u8"휘몰아치기", 1, u8"적에게 7 피해를 줍니다.", CardType::Attack, CardTargetType::Enemy, CardEffectType::AttackDamage, CardDiscardEffectType::None, 7, 0)
-    };
+    CardPackOption blockPack = {};
+    blockPack.id = 2;
+    blockPack.archetype = CardArchetype::Block;
+    blockPack.title = u8"방벽 전개";
+    blockPack.description = u8"방어도를 쌓아 피해로 환산하는 실시간 방밀 패키지입니다.";
+    blockPack.accentColor = COLOR_BLUE;
+    blockPack.cards = CardLibrary::BuildStarterPackCards(blockPack.archetype);
+    packs.push_back(blockPack);
 
-    packs.push_back(bleedPack);
-    packs.push_back(shieldPack);
-    packs.push_back(venomPack);
+    CardPackOption poisonPack = {};
+    poisonPack.id = 3;
+    poisonPack.archetype = CardArchetype::Poison;
+    poisonPack.title = u8"맹독 잠식";
+    poisonPack.description = u8"독 누적과 안정적인 방어로 적을 굳혀 죽이는 패키지입니다.";
+    poisonPack.accentColor = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+    poisonPack.cards = CardLibrary::BuildStarterPackCards(poisonPack.archetype);
+    packs.push_back(poisonPack);
+
+    CardPackOption cyclePack = {};
+    cyclePack.id = 4;
+    cyclePack.archetype = CardArchetype::Cycle;
+    cyclePack.title = u8"순환 가속";
+    cyclePack.description = u8"드로우, 버리기, 에너지 증폭으로 실시간 난전을 만드는 패키지입니다.";
+    cyclePack.accentColor = FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+    cyclePack.cards = CardLibrary::BuildStarterPackCards(cyclePack.archetype);
+    packs.push_back(cyclePack);
+
     return packs;
 }
 
@@ -1005,8 +1025,10 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
     run.roomResolved = false;
     run.currentRoomType = RunNodeType::Battle;
     run.currentRoomResult = RunNodeResultType::None;
-    run.player = { 0, u8"아이언클래드", 80, 80, 0, 0, 0, 0, 0 };
+    run.player = { 0, u8"아이언클래드", 80, 80, 0, 0, 0, 0, 0, 0 };
     run.playerName = run.player.name;
+    run.selectedCardPackTitle.clear();
+    run.selectedCardPackArchetype = CardArchetype::None;
     run.selectedStarterPackIndex = -1;
     run.nodeEntrySnapshot = {};
     run.currentRoomSummaryTitle.clear();
@@ -1020,7 +1042,11 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
 }
 
 void ApplyStarterPack(RunStateData& run, const CardPackOption& pack) {
+    run.deck.clear();
+    const std::vector<CardData> baseDeck = CardLibrary::BuildBaseStarterDeck();
+    run.deck.insert(run.deck.end(), baseDeck.begin(), baseDeck.end());
     run.selectedCardPackTitle = pack.title;
+    run.selectedCardPackArchetype = pack.archetype;
     for (const CardData& card : pack.cards) {
         run.deck.push_back(card);
     }
