@@ -168,6 +168,7 @@
     <ClCompile Include="Animation.cpp" />
     <ClCompile Include="AudioManager.cpp" />
     <ClCompile Include="ButtonUI.cpp" />
+    <ClCompile Include="CardArtLibrary.cpp" />
     <ClCompile Include="CardUI.cpp" />
     <ClCompile Include="CombatSystem.cpp" />
     <ClCompile Include="EntityUI.cpp" />
@@ -189,6 +190,7 @@
     <ClInclude Include="Animation.h" />
     <ClInclude Include="AudioManager.h" />
     <ClInclude Include="ButtonUI.h" />
+    <ClInclude Include="CardArtLibrary.h" />
     <ClInclude Include="CardUI.h" />
     <ClInclude Include="CombatSystem.h" />
     <ClInclude Include="EntityUI.h" />

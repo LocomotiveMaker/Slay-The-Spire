@@ -7,6 +7,10 @@
 // 손패 카드의 외형과 마우스 판정을 맡는 가벼운 뷰 클래스.
 class CardUI : public UIElement {
 private:
+    static constexpr int kDefaultCardWidth = 40;
+    static constexpr int kDefaultCardHeight = 26;
+    static constexpr int kHoverLift = 3;
+
     CardData* data;
     int baseY;
     int rightOcclusionChars;
@@ -20,6 +24,10 @@ private:
 
 public:
     CardUI(int x, int y, CardData* cardData);
+
+    static constexpr int DefaultWidth() { return kDefaultCardWidth; }
+    static constexpr int DefaultHeight() { return kDefaultCardHeight; }
+    static constexpr int HoverLift() { return kHoverLift; }
 
     void SetBasePosition(int newX, int newY);
     void SetRightOcclusion(int chars);

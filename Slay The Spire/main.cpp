@@ -70,6 +70,37 @@ int GetTargetRefreshRate() {
     return (std::min)(240, refreshRate);
 }
 
+std::string WideToUtf8(const std::wstring& wideText) {
+    if (wideText.empty()) {
+        return {};
+    }
+
+    const int utf8Length = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wideText.data(),
+        static_cast<int>(wideText.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (utf8Length <= 0) {
+        return "?";
+    }
+
+    std::string utf8Text(static_cast<size_t>(utf8Length), '\0');
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wideText.data(),
+        static_cast<int>(wideText.size()),
+        utf8Text.data(),
+        utf8Length,
+        nullptr,
+        nullptr);
+    return utf8Text;
+}
+
 string FormatFloat(float value, int precision = 1) {
     char buffer[64] = {};
     sprintf_s(buffer, "%.*f", precision, value);
@@ -180,6 +211,35 @@ Rect LerpRectFixedBottomCenter(const Rect& from, const Rect& to, float t) {
     return result;
 }
 
+constexpr int kNeowCardPackOffsetX = -40;
+constexpr int kCardPackExpandedPanelSideMargin = 3;
+constexpr int kCardPackExpandedPanelTopGap = 2;
+constexpr int kTitleSettingsSliderWidth = 32;
+constexpr int kRunSettingsSliderWidth = 50;
+constexpr int kCombatEnergyPanelX = 0;
+constexpr int kCombatHandRaiseRows = 3;
+constexpr float kPowerBannerDurationSec = 1.0f;
+
+struct ArtPreviewEntry {
+    AsciiArtId id = AsciiArtId::TitleLogo;
+    std::string name;
+    WORD color = COLOR_WHITE;
+};
+
+const std::vector<ArtPreviewEntry>& GetArtPreviewEntries() {
+    static const std::vector<ArtPreviewEntry> kEntries = {
+        { AsciiArtId::TitleLogo, u8"타이틀 로고 (@)", COLOR_WHITE },
+        { AsciiArtId::PlayerBattle, u8"플레이어 전투", COLOR_WHITE },
+        { AsciiArtId::PlayerDeath, u8"플레이어 사망", COLOR_RED },
+        { AsciiArtId::PlayerCardPack, u8"카드팩 플레이어", COLOR_WHITE },
+        { AsciiArtId::EnemyNormal, u8"적 기본", COLOR_WHITE },
+        { AsciiArtId::EnemyElite, u8"적 엘리트", COLOR_YELLOW },
+        { AsciiArtId::EnemyBoss, u8"적 보스", COLOR_RED },
+        { AsciiArtId::Neow, u8"니오우", COLOR_WHITE }
+    };
+    return kEntries;
+}
+
 std::vector<int> BuildStarterPackOfferIndices(std::uint32_t seed, int packCount, int offerCount = 3) {
     std::vector<int> indices;
     indices.reserve(static_cast<size_t>(packCount));
@@ -215,17 +275,17 @@ bool IsGroundUsableCard(const CardData& card) {
 std::vector<std::string> GetBigEnergyRows(int energy, int maxEnergy) {
     const std::string valueText = std::to_string((std::max)(0, energy)) + "/" + std::to_string((std::max)(0, maxEnergy));
     const char* digits[11][5] = {
-        { "333", "3 3", "3 3", "3 3", "333" },
-        { " 1 ", "11 ", " 1 ", " 1 ", "111" },
-        { "222", "  2", "222", "2  ", "222" },
-        { "333", "  3", "333", "  3", "333" },
-        { "4 4", "4 4", "444", "  4", "  4" },
-        { "555", "5  ", "555", "  5", "555" },
-        { "666", "6  ", "666", "6 6", "666" },
-        { "777", "  7", " 7 ", " 7 ", " 7 " },
-        { "888", "8 8", "888", "8 8", "888" },
-        { "999", "9 9", "999", "  9", "999" },
-        { "  /", " / ", " / ", "/  ", "/  " }
+        { u8"███", u8"█ █", u8"█ █", u8"█ █", u8"███" },
+        { u8" ██", u8"███", u8" ██", u8" ██", u8"███" },
+        { u8"███", u8"  █", u8"███", u8"█  ", u8"███" },
+        { u8"███", u8"  █", u8"███", u8"  █", u8"███" },
+        { u8"█ █", u8"█ █", u8"███", u8"  █", u8"  █" },
+        { u8"███", u8"█  ", u8"███", u8"  █", u8"███" },
+        { u8"███", u8"█  ", u8"███", u8"█ █", u8"███" },
+        { u8"███", u8"  █", u8"  █", u8" █ ", u8" █ " },
+        { u8"███", u8"█ █", u8"███", u8"█ █", u8"███" },
+        { u8"███", u8"█ █", u8"███", u8"  █", u8"███" },
+        { u8"  █", u8" ██", u8" ██", u8"██ ", u8"█  " }
     };
 
     std::vector<std::string> rows(5);
@@ -242,6 +302,20 @@ std::vector<std::string> GetBigEnergyRows(int energy, int maxEnergy) {
         }
     }
     return rows;
+}
+
+std::string BuildShortPowerBannerText(const std::string& source, int maxChars = 3) {
+    if (source.empty()) {
+        return {};
+    }
+
+    const std::wstring wide = TextLayout::Utf8ToWide(source);
+    if (wide.empty()) {
+        return source;
+    }
+
+    const int clampedCount = (std::max)(1, (std::min)(maxChars, static_cast<int>(wide.size())));
+    return WideToUtf8(std::wstring(wide.begin(), wide.begin() + clampedCount));
 }
 
 void RenderBigEnergy(ScreenManager& screen, const Rect& rect, int energy, int maxEnergy, WORD color) {
@@ -278,12 +352,25 @@ void RenderAnchoredArt(ScreenManager& screen, int centerX, int bottomY, const st
     }
 }
 
+int ComputeAnchoredBottomYFromCenterY(int centerY, int artHeight) {
+    const int safeHeight = (std::max)(1, artHeight);
+    return centerY + ((safeHeight - 1) / 2);
+}
+
+void RenderCenteredArt(ScreenManager& screen, int centerX, int centerY, const std::vector<std::string>& lines, WORD color) {
+    RenderAnchoredArt(
+        screen,
+        centerX,
+        ComputeAnchoredBottomYFromCenterY(centerY, static_cast<int>(lines.size())),
+        lines,
+        color);
+}
+
 void RenderAnchoredArtClipped(ScreenManager& screen, int centerX, int bottomY, const std::vector<std::string>& lines, WORD color, const Rect& clipRect) {
     if (lines.empty()) {
         return;
     }
 
-    // Used for oversized scene art that should only expose part of the source.
     const int artWidth = MeasureArtWidth(lines);
     const int artTopY = bottomY - static_cast<int>(lines.size()) + 1;
     const int artLeftX = centerX - (artWidth / 2);
@@ -309,6 +396,16 @@ void RenderAnchoredArtClipped(ScreenManager& screen, int centerX, int bottomY, c
             cursorX += cellWidth;
         }
     }
+}
+
+void RenderCenteredArtClipped(ScreenManager& screen, int centerX, int centerY, const std::vector<std::string>& lines, WORD color, const Rect& clipRect) {
+    RenderAnchoredArtClipped(
+        screen,
+        centerX,
+        ComputeAnchoredBottomYFromCenterY(centerY, static_cast<int>(lines.size())),
+        lines,
+        color,
+        clipRect);
 }
 
 std::vector<std::string> BuildStatusTooltipLines(const std::string& key, int value) {
@@ -369,7 +466,8 @@ void RenderWrappedText(ScreenManager& screen, int x, int y, int width, const str
 }
 
 void RenderSlider(ScreenManager& screen, int x, int y, int width, const string& label, int value, bool active) {
-    const string gaugeInner(static_cast<size_t>(width - 8), '.');
+    const int gaugeWidth = (std::max)(8, width);
+    const string gaugeInner(static_cast<size_t>(gaugeWidth), '.');
     string gauge = gaugeInner;
     const int fillCount = static_cast<int>(std::round((static_cast<float>(gauge.size()) * value) / 100.0f));
     for (int index = 0; index < fillCount && index < static_cast<int>(gauge.size()); ++index) {
@@ -379,7 +477,7 @@ void RenderSlider(ScreenManager& screen, int x, int y, int width, const string& 
     const WORD color = active ? COLOR_YELLOW : COLOR_WHITE;
     screen.DrawString(x, y, label, color);
     screen.DrawString(x + 14, y, "[" + gauge + "]", color);
-    screen.DrawString(x + width - 4, y, to_string(value), color);
+    screen.DrawString(x + 17 + gaugeWidth, y, to_string(value), color);
 }
 
 int GetSliderValueFromMouse(const Rect& trackRect, int mouseX) {
@@ -827,6 +925,10 @@ int main() {
     float endingRevealProgress = 0.0f;
     int animatedPackIndex = -1;
     float cardPackPanelProgress = 0.0f;
+    std::string powerBannerText;
+    float powerBannerTimerSec = 0.0f;
+    bool artPreviewOpen = false;
+    int artPreviewIndex = 0;
 
     auto reloadRecords = [&]() {
         runRecords = SaveManager::LoadRunRecords();
@@ -847,6 +949,8 @@ int main() {
         forceRecenterHandLayout = true;
         discardPileExpandProgress = 0.0f;
         drawPileExpandProgress = 0.0f;
+        powerBannerText.clear();
+        powerBannerTimerSec = 0.0f;
         targetingArrow.SetActive(false);
         };
 
@@ -1064,6 +1168,26 @@ int main() {
         const bool pressedF11 = ConsumeKeyPress(VK_F11, wasF11Pressed);
         const bool pressedF12 = ConsumeKeyPress(VK_F12, wasF12Pressed);
         const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool pressedLeft = (GetAsyncKeyState(VK_LEFT) & 0x0001) != 0;
+        const bool pressedRight = (GetAsyncKeyState(VK_RIGHT) & 0x0001) != 0;
+
+        if (ctrlHeld && pressedF11) {
+            artPreviewOpen = !artPreviewOpen;
+        }
+        if (artPreviewOpen) {
+            const int previewCount = static_cast<int>(GetArtPreviewEntries().size());
+            if (previewCount > 0) {
+                if (ctrlHeld && pressedF12) {
+                    artPreviewIndex = (artPreviewIndex + 1) % previewCount;
+                }
+                if (pressedRight) {
+                    artPreviewIndex = (artPreviewIndex + 1) % previewCount;
+                }
+                if (pressedLeft) {
+                    artPreviewIndex = (artPreviewIndex - 1 + previewCount) % previewCount;
+                }
+            }
+        }
 
         if (appState == AppState::Run && settings.debugMode && run.overlay == RunOverlayType::None) {
             const auto openDebugRoom = [&](RunNodeType type) {
@@ -1139,19 +1263,9 @@ int main() {
                 shouldQuit = true;
             }
 
-            const Rect logoRect = { screen.GetCenterX() - 24, 5, 48, 7 };
-            RenderFrameBox(screen, logoRect, COLOR_WHITE);
-            RenderPanelTitle(screen, logoRect, u8"SLAY THE SPIRE", COLOR_RED);
-            screen.DrawString(
-                logoRect.x + 2,
-                logoRect.y + 3,
-                TextLayout::AlignToWidth(TextLayout::Utf8ToWide(u8"상태 머신 / 런 뼈대 단계"), logoRect.width - 4, TextLayout::HorizontalAlign::Center),
-                COLOR_WHITE);
-            screen.DrawString(
-                logoRect.x + 2,
-                logoRect.y + 4,
-                TextLayout::AlignToWidth(TextLayout::Utf8ToWide(string(u8"시드 준비 / 기록 ") + to_string(runRecords.size())), logoRect.width - 4, TextLayout::HorizontalAlign::Center),
-                FOREGROUND_INTENSITY);
+            const std::vector<std::string>& titleLogo = AsciiArtLibrary::Get(AsciiArtId::TitleLogo);
+            const Rect titleLogoClip = { 0, 0, screen.GetWidth(), screen.GetHeight() };
+            RenderCenteredArtClipped(screen, screen.GetCenterX(), screen.GetCenterY() - 1, titleLogo, COLOR_WHITE, titleLogoClip);
 
             vector<ButtonUI> titleButtons;
             int buttonX = 4;
@@ -1222,20 +1336,20 @@ int main() {
 
                 const int contentLeft = popup.x + 4;
                 const int contentWidth = popup.width - 8;
-                Rect masterTrack = { contentLeft + 12, popup.y + 5, contentWidth - 20, 1 };
-                Rect bgmTrack = { contentLeft + 12, popup.y + 7, contentWidth - 20, 1 };
-                Rect sfxTrack = { contentLeft + 12, popup.y + 9, contentWidth - 20, 1 };
-                Rect speedTrack = { contentLeft + 12, popup.y + 11, contentWidth - 20, 1 };
+                Rect masterTrack = { contentLeft + 12, popup.y + 5, kTitleSettingsSliderWidth, 1 };
+                Rect bgmTrack = { contentLeft + 12, popup.y + 7, kTitleSettingsSliderWidth, 1 };
+                Rect sfxTrack = { contentLeft + 12, popup.y + 9, kTitleSettingsSliderWidth, 1 };
+                Rect speedTrack = { contentLeft + 12, popup.y + 11, kTitleSettingsSliderWidth, 1 };
 
                 UpdateSliderDrag(input, mouseX, 0, masterTrack, settings.masterVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 1, bgmTrack, settings.bgmVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 2, sfxTrack, settings.sfxVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 3, speedTrack, settings.gameSpeedPercent, activeSliderId);
 
-                RenderSlider(screen, contentLeft, popup.y + 5, contentWidth, u8"마스터", settings.masterVolume, activeSliderId == 0);
-                RenderSlider(screen, contentLeft, popup.y + 7, contentWidth, u8"BGM", settings.bgmVolume, activeSliderId == 1);
-                RenderSlider(screen, contentLeft, popup.y + 9, contentWidth, u8"SFX", settings.sfxVolume, activeSliderId == 2);
-                RenderSlider(screen, contentLeft, popup.y + 11, contentWidth, u8"속도", settings.gameSpeedPercent, activeSliderId == 3);
+                RenderSlider(screen, contentLeft, popup.y + 5, kTitleSettingsSliderWidth, u8"마스터", settings.masterVolume, activeSliderId == 0);
+                RenderSlider(screen, contentLeft, popup.y + 7, kTitleSettingsSliderWidth, u8"BGM", settings.bgmVolume, activeSliderId == 1);
+                RenderSlider(screen, contentLeft, popup.y + 9, kTitleSettingsSliderWidth, u8"SFX", settings.sfxVolume, activeSliderId == 2);
+                RenderSlider(screen, contentLeft, popup.y + 11, kTitleSettingsSliderWidth, u8"속도", settings.gameSpeedPercent, activeSliderId == 3);
 
                 ButtonUI btnToggleEffects(contentLeft, popup.y + 14, 18, 3, string(u8"이펙트 ") + (settings.effectsEnabled ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
                 ButtonUI btnToggleDebug(contentLeft + 20, popup.y + 14, 18, 3, string(u8"디버그 ") + (settings.debugMode ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
@@ -1276,7 +1390,7 @@ int main() {
                 RenderFrameBox(screen, popup, COLOR_YELLOW);
                 RenderPanelTitle(screen, popup, u8"기록", COLOR_YELLOW);
 
-                ButtonUI btnBack(popup.x + popup.width - 18, popup.y + popup.height - 4, 14, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnBack(popup.x + popup.width - 22, popup.y + popup.height - 5, 18, 4, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
                 btnBack.Update(input);
                 btnBack.Render(screen);
 
@@ -1314,7 +1428,7 @@ int main() {
                     selectedRecordIndex = (std::max)(0, (std::min)(selectedRecordIndex, static_cast<int>(runRecords.size()) - 1));
                     const RunRecordData& selectedRecord = runRecords[static_cast<size_t>(selectedRecordIndex)];
 
-                    const Rect detailRect = { popup.x + popup.width / 2, popup.y + 4, popup.width / 2 - 3, popup.height - 6 };
+                    const Rect detailRect = { popup.x + popup.width / 2, popup.y + 2, popup.width / 2 - 3, popup.height - 4 };
                     RenderFrameBox(screen, detailRect, COLOR_WHITE);
                     RenderPanelTitle(screen, detailRect, selectedRecord.won ? u8"승리 기록" : u8"패배 기록", selectedRecord.won ? COLOR_GREEN : COLOR_RED);
 
@@ -1513,11 +1627,10 @@ int main() {
                 const std::vector<std::string>& playerCardPackArt = AsciiArtLibrary::Get(AsciiArtId::PlayerCardPack);
                 const std::vector<std::string>& neowArt = AsciiArtLibrary::Get(AsciiArtId::Neow);
                 const Rect playerArtClip = { 2, 7, 34, screen.GetHeight() - 12 };
-                const Rect neowArtClip = { screen.GetWidth() - 34, 6, 32, screen.GetHeight() - 10 };
+                const Rect neowArtClip = { screen.GetWidth() - 72, 6, 160, screen.GetHeight() - 10 };
                 const int playerArtBottomY = screen.GetHeight() - 5;
                 const int neowArtBottomY = screen.GetHeight() - 4;
-                const int neowVisibleWidth = 28;
-                const int neowCenterX = screen.GetWidth() + (MeasureArtWidth(neowArt) / 2) - (neowVisibleWidth / 2);
+                const int neowCenterX = neowArtClip.x + (neowArtClip.width / 2) + kNeowCardPackOffsetX;
                 const int packPanelWidth = 24;
                 const int packPanelHeight = 18;
                 const int packGap = 3;
@@ -1526,11 +1639,17 @@ int main() {
                     (static_cast<int>(offeredPackIndices.size()) - 1) * packGap;
                 const int packStartX = screen.GetCenterX() - (packRowWidth / 2);
                 const int detailBottomY = packTop - 2;
-                const int expandedDetailWidth = (std::max)(76, screen.GetWidth() - 80);
                 const Rect headline = { screen.GetCenterX() - 32, 6, 64, 6 };
+                const int expandedDetailWidth = screen.GetWidth() - (kCardPackExpandedPanelSideMargin * 2);
+                const int expandedDetailTop = headline.y + headline.height + kCardPackExpandedPanelTopGap;
                 const Rect collapsedDetailRect = { screen.GetCenterX() - 20, detailBottomY - 5, 40, 5 };
-                const Rect expandedDetailRect = { screen.GetCenterX() - (expandedDetailWidth / 2), detailBottomY - 21, expandedDetailWidth, 21 };
-                const Rect speechRect = { screen.GetWidth() - 34, 5, 22, 5 };
+                const Rect expandedDetailRect = {
+                    kCardPackExpandedPanelSideMargin,
+                    expandedDetailTop,
+                    expandedDetailWidth,
+                    (std::max)(12, detailBottomY - expandedDetailTop + 1)
+                };
+                const Rect speechRect = { screen.GetWidth() - 49, 5, 22, 5 };
 
                 RenderAnchoredArtClipped(screen, 19, playerArtBottomY, playerCardPackArt, COLOR_WHITE, playerArtClip);
                 RenderAnchoredArtClipped(screen, neowCenterX, neowArtBottomY, neowArt, COLOR_WHITE, neowArtClip);
@@ -1550,7 +1669,7 @@ int main() {
                     headline.y + 1,
                     TextLayout::AlignToWidth(TextLayout::Utf8ToWide(u8"시너지 카드팩 선택"), headline.width - 2, TextLayout::HorizontalAlign::Center),
                     COLOR_YELLOW);
-                RenderWrappedText(screen, headline.x + 3, headline.y + 2, headline.width - 6, u8"첫 시작에서는 5개 중 랜덤한 3개 카드팩 중 하나를 고른 뒤 확인 버튼으로 런을 시작합니다.", COLOR_WHITE);
+                RenderWrappedText(screen, headline.x + 3, headline.y + 2, headline.width - 6, u8"첫 시작에서는 랜덤한 3개 카드팩 중 하나를 고른 뒤 확인 버튼으로 런을 시작합니다.", COLOR_WHITE);
 
                 std::vector<Rect> packRects;
                 packRects.reserve(offeredPackIndices.size());
@@ -1728,13 +1847,13 @@ int main() {
                     RenderWrappedText(screen, animatedDetailRect.x + 3, animatedDetailRect.y + 3, animatedDetailRect.width - 6, u8"카드팩 위에 마우스를 올리거나 클릭하면 상세 정보가 펼쳐집니다.", COLOR_WHITE);
                 }
 
-                ButtonUI btnConfirm(screen.GetCenterX() - 12, screen.GetHeight() - 6, 24, 3, u8"이 카드팩으로 시작", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnConfirm(screen.GetCenterX() - 12, screen.GetHeight() - 4, 24, 3, u8"이 카드팩으로 시작", COLOR_WHITE, COLOR_YELLOW);
                 if (run.selectedStarterPackIndex >= 0 && cardPackInputAllowed) {
                     btnConfirm.Update(input);
                 }
                 btnConfirm.Render(screen);
                 if (run.selectedStarterPackIndex < 0) {
-                    screen.DrawString(screen.GetCenterX() - 13, screen.GetHeight() - 8, u8"먼저 카드팩을 선택하세요.", FOREGROUND_INTENSITY);
+                    screen.DrawString(screen.GetCenterX() - 13, screen.GetHeight() - 10, u8"먼저 카드팩을 선택하세요.", FOREGROUND_INTENSITY);
                 }
                 else if (btnConfirm.IsClicked()) {
                     ApplyStarterPack(run, starterPacks[static_cast<size_t>(run.selectedStarterPackIndex)]);
@@ -1919,7 +2038,7 @@ int main() {
                         const int combatEnemyY = combatBaselineY;
                         const Rect drawPileRect = { 2, screen.GetHeight() - 6, 10, 4 };
                         const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 6, 10, 4 };
-                        const Rect energyRect = { (std::max)(14, combatPlayerX - 38), screen.GetHeight() - 17, 30, 9 };
+                        const Rect energyRect = { kCombatEnergyPanelX, screen.GetHeight() - 17, 28, 11 };
                         Rect intentRect = { combatEnemyX - 11, 8, 24, 5 };
 
                         auto renderDeadPlayerPose = [&]() {
@@ -2061,11 +2180,12 @@ int main() {
 
                             const auto& hand = combatSystem->GetHand();
                             const int cardCount = static_cast<int>(hand.size());
-                            const int overlapChars = cardCount >= 5 ? 2 : (cardCount >= 2 ? 1 : 0);
-                            const int cardSpacing = 28 - overlapChars;
-                            const int totalHandWidth = cardCount > 0 ? (28 + (cardCount - 1) * cardSpacing) : 0;
+                            const int cardWidth = CardUI::DefaultWidth();
+                            const int overlapChars = cardCount >= 7 ? 12 : (cardCount >= 5 ? 8 : (cardCount >= 2 ? 2 : 0));
+                            const int cardSpacing = cardWidth - overlapChars;
+                            const int totalHandWidth = cardCount > 0 ? (cardWidth + (cardCount - 1) * cardSpacing) : 0;
                             const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
-                            const int handBaseY = screen.GetHeight() - 15;
+                            const int handBaseY = screen.GetHeight() - 15 - kCombatHandRaiseRows;
                             const bool allowCardInteraction = (run.overlay == RunOverlayType::None);
 
                             const auto recenterHandLayout = [&]() {
@@ -2097,7 +2217,7 @@ int main() {
                                 }
 
                                 const auto minMaxX = std::minmax_element(handLayoutXs.begin(), handLayoutXs.end());
-                                if (*minMaxX.first < 2 || *minMaxX.second + 28 > screen.GetWidth() - 2) {
+                                if (*minMaxX.first < 2 || *minMaxX.second + cardWidth > screen.GetWidth() - 2) {
                                     recenterHandLayout();
                                 }
                             }
@@ -2179,7 +2299,7 @@ int main() {
                                 targetingArrow.SetColor(dropTarget == CombatDropTarget::DiscardPile
                                     ? COLOR_WHITE
                                     : (draggedCard.type == CardType::Attack ? COLOR_RED : FOREGROUND_INTENSITY));
-                                targetingArrow.SetStartPoint(handCards[static_cast<size_t>(draggedHandIndex)].GetX() + 14, handBaseY - 1);
+                                targetingArrow.SetStartPoint(handCards[static_cast<size_t>(draggedHandIndex)].GetX() + (cardWidth / 2), handBaseY - 1);
                                 targetingArrow.SetEndPoint(mouseX, mouseY);
                             }
                             else {
@@ -2279,6 +2399,10 @@ int main() {
                                     if (actionResult.success) {
                                         ++globalStats.totalCardsUsed;
                                         forceRecenterHandLayout = true;
+                                        if (actionResult.usedPowerCard) {
+                                            powerBannerText = BuildShortPowerBannerText(actionResult.usedCardName);
+                                            powerBannerTimerSec = kPowerBannerDurationSec;
+                                        }
                                         if (enemyEntityUi && actionResult.enemyHit) {
                                             enemyEntityUi->TriggerHitAnimation();
                                         }
@@ -2305,6 +2429,7 @@ int main() {
                                 ? (draggedHandIndex >= 0 ? combatSystem->GetDragTimeScale() : 1.0f)
                                 : 0.0f;
                             const CombatFrameResult frameResult = combatSystem->Update(deltaTimeSec, combatTimeScale * (settings.gameSpeedPercent / 100.0f));
+                            powerBannerTimerSec = (std::max)(0.0f, powerBannerTimerSec - deltaTimeSec);
 
                             if (frameResult.enemyHit && enemyEntityUi) {
                                 enemyEntityUi->TriggerHitAnimation();
@@ -2329,7 +2454,7 @@ int main() {
                             screen.DrawString(discardRenderRect.x + 2, discardRenderRect.y + 2, string("Count ") + to_string(combatSystem->GetDiscardPileCount()), COLOR_WHITE);
 
                             RenderBigEnergy(screen, energyRect, combatSystem->GetEnergy(), combatSystem->GetMaxEnergy(), COLOR_YELLOW);
-                            screen.DrawString(energyRect.x + 2, energyRect.y + energyRect.height - 2, string(u8"속도 x") + FormatFloat(combatSystem->GetSpeedMultiplier(), 2), COLOR_GREEN);
+                            screen.DrawString(energyRect.x + 2, energyRect.y + energyRect.height - 1, string(u8"속도 x") + FormatFloat(combatSystem->GetSpeedMultiplier(), 2), COLOR_GREEN);
 
                             RenderFrameBox(screen, intentRect, COLOR_RED);
                             const EnemyIntentState& intent = combatSystem->GetCurrentIntent();
@@ -2419,6 +2544,17 @@ int main() {
 
                             renderEntityStatusHud(playerEntityUi.get(), run.player);
                             renderEntityStatusHud(enemyEntityUi.get(), run.battleRoom.enemy);
+
+                            if (powerBannerTimerSec > 0.0f && !powerBannerText.empty() && playerEntityUi) {
+                                const int bannerX = TextLayout::ComputeAlignedXUtf8(
+                                    playerEntityUi->GetHealthBarX(),
+                                    playerEntityUi->GetHealthBarWidth(),
+                                    powerBannerText,
+                                    TextLayout::HorizontalAlign::Center);
+                                const int bannerY = playerEntityUi->GetHealthBarY() + 4;
+                                const WORD bannerColor = (powerBannerTimerSec > 0.35f) ? COLOR_YELLOW : FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+                                screen.DrawString(bannerX, bannerY, powerBannerText, bannerColor);
+                            }
 
                             std::vector<int> renderOrder;
                             renderOrder.reserve(static_cast<size_t>(cardCount));
@@ -2942,20 +3078,20 @@ int main() {
 
                 const int contentLeft = popup.x + 4;
                 const int contentWidth = popup.width - 8;
-                Rect masterTrack = { contentLeft + 12, popup.y + 5, contentWidth - 22, 1 };
-                Rect bgmTrack = { contentLeft + 12, popup.y + 7, contentWidth - 22, 1 };
-                Rect sfxTrack = { contentLeft + 12, popup.y + 9, contentWidth - 22, 1 };
-                Rect speedTrack = { contentLeft + 12, popup.y + 11, contentWidth - 22, 1 };
+                Rect masterTrack = { contentLeft + 12, popup.y + 5, kRunSettingsSliderWidth, 1 };
+                Rect bgmTrack = { contentLeft + 12, popup.y + 7, kRunSettingsSliderWidth, 1 };
+                Rect sfxTrack = { contentLeft + 12, popup.y + 9, kRunSettingsSliderWidth, 1 };
+                Rect speedTrack = { contentLeft + 12, popup.y + 11, kRunSettingsSliderWidth, 1 };
 
                 UpdateSliderDrag(input, mouseX, 0, masterTrack, settings.masterVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 1, bgmTrack, settings.bgmVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 2, sfxTrack, settings.sfxVolume, activeSliderId);
                 UpdateSliderDrag(input, mouseX, 3, speedTrack, settings.gameSpeedPercent, activeSliderId);
 
-                RenderSlider(screen, contentLeft, popup.y + 5, contentWidth, u8"마스터", settings.masterVolume, activeSliderId == 0);
-                RenderSlider(screen, contentLeft, popup.y + 7, contentWidth, u8"BGM", settings.bgmVolume, activeSliderId == 1);
-                RenderSlider(screen, contentLeft, popup.y + 9, contentWidth, u8"SFX", settings.sfxVolume, activeSliderId == 2);
-                RenderSlider(screen, contentLeft, popup.y + 11, contentWidth, u8"속도", settings.gameSpeedPercent, activeSliderId == 3);
+                RenderSlider(screen, contentLeft, popup.y + 5, kRunSettingsSliderWidth, u8"마스터", settings.masterVolume, activeSliderId == 0);
+                RenderSlider(screen, contentLeft, popup.y + 7, kRunSettingsSliderWidth, u8"BGM", settings.bgmVolume, activeSliderId == 1);
+                RenderSlider(screen, contentLeft, popup.y + 9, kRunSettingsSliderWidth, u8"SFX", settings.sfxVolume, activeSliderId == 2);
+                RenderSlider(screen, contentLeft, popup.y + 11, kRunSettingsSliderWidth, u8"속도", settings.gameSpeedPercent, activeSliderId == 3);
 
                 ButtonUI btnToggleDebug(contentLeft, popup.y + 15, 18, 3, string(u8"디버그 ") + (settings.debugMode ? u8"ON" : u8"OFF"), COLOR_WHITE, COLOR_YELLOW);
                 ButtonUI btnBack(contentLeft, popup.y + popup.height - 4, 16, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
@@ -3090,6 +3226,36 @@ int main() {
         }
         else if (appState == AppState::Ending) {
             transitionToTitle();
+        }
+
+        if (artPreviewOpen) {
+            const std::vector<ArtPreviewEntry>& previewEntries = GetArtPreviewEntries();
+            if (!previewEntries.empty()) {
+                const ArtPreviewEntry& preview = previewEntries[static_cast<size_t>(artPreviewIndex % static_cast<int>(previewEntries.size()))];
+                const Rect previewRect = { 6, 3, screen.GetWidth() - 12, screen.GetHeight() - 6 };
+                const Rect artClip = { previewRect.x + 2, previewRect.y + 3, previewRect.width - 4, previewRect.height - 7 };
+                const std::vector<std::string>& artLines = AsciiArtLibrary::Get(preview.id);
+
+                RenderFrameBox(screen, previewRect, COLOR_BLUE);
+                RenderPanelTitle(screen, previewRect, u8"아트 프리뷰", COLOR_BLUE);
+                screen.DrawString(
+                    previewRect.x + 2,
+                    previewRect.y + 1,
+                    preview.name + "  " + std::to_string(artPreviewIndex + 1) + "/" + std::to_string(previewEntries.size()),
+                    preview.color);
+                screen.DrawString(
+                    previewRect.x + 2,
+                    previewRect.y + previewRect.height - 2,
+                    u8"Ctrl+F11 닫기  Ctrl+F12/←/→ 전환",
+                    FOREGROUND_INTENSITY);
+                RenderCenteredArtClipped(
+                    screen,
+                    artClip.x + (artClip.width / 2),
+                    artClip.y + (artClip.height / 2),
+                    artLines,
+                    preview.color,
+                    artClip);
+            }
         }
 
         screen.DrawChar(mouseX, mouseY, '+', COLOR_GREEN);

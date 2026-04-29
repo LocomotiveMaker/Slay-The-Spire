@@ -59,6 +59,7 @@ struct CombatActionResult {
     bool success = false;
     bool handChanged = false;
     bool cardDiscarded = false;
+    bool usedPowerCard = false;
     bool playerHit = false;
     bool enemyHit = false;
     int energySpent = 0;
@@ -68,6 +69,7 @@ struct CombatActionResult {
     int blockGained = 0;
     int vulnerableApplied = 0;
     std::string message;
+    std::string usedCardName;
 };
 
 struct DelayedEnergyGain {

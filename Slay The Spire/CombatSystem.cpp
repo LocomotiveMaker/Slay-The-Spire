@@ -652,13 +652,6 @@ void CombatSystem::StartBattle(const std::vector<CardData>& startingDeck) {
     discardPile.clear();
     hand.clear();
 
-    if (!startingDeck.empty()) {
-        const size_t minimumDrawSourceSize = static_cast<size_t>(config.startingHandSize + config.handLimit);
-        while (drawPile.size() < minimumDrawSourceSize) {
-            drawPile.insert(drawPile.end(), startingDeck.begin(), startingDeck.end());
-        }
-    }
-
     ShuffleDrawPile();
 
     speedMultiplier = 1.0f;
@@ -810,6 +803,8 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
     result.energySpent = card.cost;
     result.success = true;
     result.handChanged = true;
+    result.usedCardName = card.baseName.empty() ? card.name : card.baseName;
+    result.usedPowerCard = (card.type == CardType::Power);
 
     const int comboBeforeUse = comboCount;
     const bool isAttackCard = (card.type == CardType::Attack);

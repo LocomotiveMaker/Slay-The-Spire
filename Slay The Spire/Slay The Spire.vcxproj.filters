@@ -30,6 +30,9 @@
     <ClCompile Include="CardUI.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="CardArtLibrary.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="CombatSystem.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -87,6 +90,9 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="CardUI.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="CardArtLibrary.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="CombatSystem.h">

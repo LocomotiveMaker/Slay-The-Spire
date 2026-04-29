@@ -1,13 +1,21 @@
 #include "CardUI.h"
+
+#include "CardArtLibrary.h"
 #include "TextLayout.h"
 
 // 카드 렌더링은 폭 계산과 정렬 안정성이 중요해서, 숫자 배치와 줄바꿈을
 // 여기에서 한 번에 처리한다.
 namespace {
 
-constexpr int kCardInnerWidth = 26;
-constexpr int kDescriptionTop = 9;
-constexpr int kDescriptionLineCount = 6;
+constexpr int kCardInnerWidth = 38;
+constexpr int kDescriptionTop = 13;
+constexpr int kDescriptionLineCount = 8;
+constexpr int kArtTop = 5;
+constexpr int kArtLineCount = 6;
+
+std::string BuildHorizontalFrame(char left, char fill, char right, int width) {
+    return std::string(1, left) + std::string(static_cast<size_t>((std::max)(0, width - 2)), fill) + std::string(1, right);
+}
 
 std::wstring BuildCardLine(
     const std::wstring& content,
@@ -35,7 +43,7 @@ std::string GetCardTypeLabel(CardType type) {
 } // namespace
 
 CardUI::CardUI(int x, int y, CardData* cardData)
-    : UIElement(x, y, 28, 18),
+    : UIElement(x, y, kDefaultCardWidth, kDefaultCardHeight),
     data(cardData),
     baseY(y),
     rightOcclusionChars(0),
@@ -99,7 +107,7 @@ void CardUI::SetPlayable(bool canPlay) {
 bool CardUI::Update(InputManager& input) {
     bool hit = UIElement::Update(input);
 
-    y = (playable && isHovered) ? baseY - 3 : baseY;
+    y = (playable && isHovered) ? baseY - kHoverLift : baseY;
 
     if (isHovered && input.IsLeftClickDown()) {
         // Reserved for future card-specific interactions.
@@ -111,22 +119,42 @@ void CardUI::Render(ScreenManager& screen) {
     if (data == nullptr) return;
 
     const WORD color = playable ? (isHovered ? COLOR_YELLOW : frameColor) : FOREGROUND_INTENSITY;
+    const std::vector<std::string>& artLines = CardArtLibrary::Get(*data);
+    const std::string topFrame = BuildHorizontalFrame(',', '-', '.', width);
+    const std::string bottomFrame = BuildHorizontalFrame('`', '-', '\'', width);
 
-    screen.DrawString(x, y + 0, ",--------------------------.", color);
-    screen.DrawString(x, y + 1, "|[" + std::to_string(data->cost) + "]                       |", color);
-    screen.DrawString(x, y + 2, "|                          |", color);
+    screen.DrawString(x, y + 0, topFrame, color);
+    screen.DrawString(
+        x,
+        y + 1,
+        BuildCardLine(TextLayout::Utf8ToWide("[" + std::to_string(data->cost) + "]"), TextLayout::HorizontalAlign::Left),
+        color);
+    screen.DrawString(x, y + 2, BuildCardLine(L""), color);
     screen.DrawString(x, y + 3, cachedNameLine, color);
-    screen.DrawString(x, y + 4, "|                          |", color);
-    screen.DrawString(x, y + 5, "|       //========\\\\       |", color);
-    screen.DrawString(x, y + 6, "|       ||  ART   ||       |", color);
-    screen.DrawString(x, y + 7, "|       \\\\========//       |", color);
-    screen.DrawString(x, y + 8, "|                          |", color);
+    screen.DrawString(x, y + 4, BuildCardLine(L""), color);
+
+    for (int artIndex = 0; artIndex < kArtLineCount; ++artIndex) {
+        std::wstring artLine;
+        if (artIndex < static_cast<int>(artLines.size())) {
+            artLine = TextLayout::Utf8ToWide(artLines[static_cast<size_t>(artIndex)]);
+        }
+        screen.DrawString(
+            x,
+            y + kArtTop + artIndex,
+            BuildCardLine(artLine, TextLayout::HorizontalAlign::Center),
+            color);
+    }
+
+    screen.DrawString(x, y + 11, BuildCardLine(L""), color);
+    screen.DrawString(x, y + 12, BuildCardLine(L""), color);
 
     for (int lineIndex = 0; lineIndex < kDescriptionLineCount; ++lineIndex) {
         screen.DrawString(x, y + kDescriptionTop + lineIndex, cachedDescriptionLines[static_cast<size_t>(lineIndex)], color);
     }
 
-    screen.DrawString(x, y + 15, cachedTypeLine, color);
-    screen.DrawString(x, y + 16, "|                          |", color);
-    screen.DrawString(x, y + 17, "`--------------------------'", color);
+    screen.DrawString(x, y + 21, BuildCardLine(L""), color);
+    screen.DrawString(x, y + 22, cachedTypeLine, color);
+    screen.DrawString(x, y + 23, BuildCardLine(L""), color);
+    screen.DrawString(x, y + 24, BuildCardLine(L""), color);
+    screen.DrawString(x, y + 25, bottomFrame, color);
 }

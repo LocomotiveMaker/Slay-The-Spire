@@ -9,6 +9,7 @@
 #include <vector>
 
 enum class AsciiArtId {
+    TitleLogo,
     PlayerBattle,
     PlayerDeath,
     PlayerCardPack,
@@ -25,5 +26,10 @@ const std::vector<std::string>& Get(AsciiArtId id);
 
 // Trims common indentation and blank margins so pasted art is easier to manage.
 std::vector<std::string> Normalize(const std::vector<std::string>& lines);
+
+// Art-safe path:
+// removes only shared source indentation, preserves blank rows/trailing blanks,
+// and canonicalizes blank-like glyphs to ASCII space for stable console output.
+std::vector<std::string> PreserveArtLayout(const std::vector<std::string>& lines);
 
 } // namespace AsciiArtLibrary
