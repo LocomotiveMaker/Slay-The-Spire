@@ -281,6 +281,12 @@ void WriteBattleReward(std::ostream& out, const BattleRewardState& reward) {
     out << "BATTLE_REWARD_CARD " << static_cast<int>(reward.cardRewardAvailable) << ' ' << static_cast<int>(reward.cardRewardClaimed) << ' ' << static_cast<int>(reward.cardSelectionOpen) << '\n';
     out << "BATTLE_REWARD_TITLE " << std::quoted(reward.title) << '\n';
     out << "BATTLE_REWARD_MESSAGE " << std::quoted(reward.message) << '\n';
+    out << "BATTLE_REWARD_RELIC_COUNT " << reward.relicRewards.size() << '\n';
+    for (size_t index = 0; index < reward.relicRewards.size(); ++index) {
+        WriteRelic(out, reward.relicRewards[index]);
+        const int claimed = (index < reward.relicClaimed.size()) ? reward.relicClaimed[index] : 0;
+        out << "BATTLE_REWARD_RELIC_CLAIMED " << claimed << '\n';
+    }
     out << "BATTLE_REWARD_CARD_COUNT " << reward.cardChoices.size() << '\n';
     for (const CardData& card : reward.cardChoices) {
         WriteCard(out, card);
@@ -325,6 +331,26 @@ bool ReadBattleReward(std::istream& in, BattleRewardState& reward) {
     }
     if (!(in >> tag >> std::quoted(reward.message)) || tag != "BATTLE_REWARD_MESSAGE") {
         return false;
+    }
+
+    size_t relicCount = 0;
+    if (!(in >> tag >> relicCount) || tag != "BATTLE_REWARD_RELIC_COUNT") {
+        return false;
+    }
+    reward.relicRewards.clear();
+    reward.relicClaimed.clear();
+    for (size_t index = 0; index < relicCount; ++index) {
+        RelicData relic = {};
+        if (!ReadRelic(in, relic)) {
+            return false;
+        }
+        reward.relicRewards.push_back(relic);
+
+        int claimed = 0;
+        if (!(in >> tag >> claimed) || tag != "BATTLE_REWARD_RELIC_CLAIMED") {
+            return false;
+        }
+        reward.relicClaimed.push_back(claimed);
     }
 
     size_t count = 0;

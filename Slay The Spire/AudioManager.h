@@ -24,6 +24,7 @@ private:
     bool isFadingOutForSwitch;
 
     std::wstring GetExeDir() const;
+    std::wstring ResolveAudioPath(const std::wstring& filename) const;
     int BuildScaledVolumeValue(float logicalPercent, bool bgmChannel) const;
     void SetBGMVolumeInternal(float logicalPercent);
 

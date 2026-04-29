@@ -31,6 +31,38 @@ std::wstring AudioManager::GetExeDir() const {
     return exeDir;
 }
 
+std::wstring AudioManager::ResolveAudioPath(const std::wstring& filename) const {
+    if (filename.empty()) {
+        return {};
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path candidatePath(filename);
+    if (candidatePath.is_absolute() && fs::exists(candidatePath)) {
+        return candidatePath.wstring();
+    }
+
+    const std::vector<fs::path> candidates = {
+        fs::path(exeDir) / filename,
+        fs::path(exeDir) / L"Assets" / L"Audio" / filename,
+        fs::path(exeDir) / L"Audio" / filename,
+        fs::path(exeDir) / L".." / L".." / filename,
+        fs::path(exeDir) / L".." / L".." / L"Assets" / L"Audio" / filename,
+        fs::path(exeDir) / L".." / L".." / L"Slay The Spire" / L"Assets" / L"Audio" / filename
+    };
+
+    for (const fs::path& candidate : candidates) {
+        std::error_code ec;
+        const fs::path normalized = fs::weakly_canonical(candidate, ec);
+        const fs::path finalPath = ec ? candidate : normalized;
+        if (fs::exists(finalPath)) {
+            return finalPath.wstring();
+        }
+    }
+
+    return {};
+}
+
 int AudioManager::BuildScaledVolumeValue(float logicalPercent, bool bgmChannel) const {
     const float safePercent = (std::max)(0.0f, (std::min)(100.0f, logicalPercent));
     const float channelVolume = bgmChannel ? static_cast<float>(bgmVolume) : static_cast<float>(sfxVolume);
@@ -45,8 +77,8 @@ void AudioManager::SetBGMVolumeInternal(float logicalPercent) {
 }
 
 void AudioManager::PlayBGM(const std::wstring& filename, float logicalPercent) {
-    const std::wstring fullPath = exeDir + L"\\" + filename;
-    if (!std::filesystem::exists(fullPath)) {
+    const std::wstring fullPath = ResolveAudioPath(filename);
+    if (fullPath.empty()) {
         return;
     }
 
@@ -128,8 +160,8 @@ void AudioManager::SetVolumes(int master, int bgm, int sfx) {
 }
 
 void AudioManager::PlayEffect(const std::wstring& filename, const std::wstring& alias, bool loop) {
-    const std::wstring fullPath = exeDir + L"\\" + filename;
-    if (!std::filesystem::exists(fullPath)) {
+    const std::wstring fullPath = ResolveAudioPath(filename);
+    if (fullPath.empty()) {
         return;
     }
 

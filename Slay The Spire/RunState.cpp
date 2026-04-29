@@ -132,7 +132,10 @@ void InitializeShopRoom(RunStateData& run) {
     run.shopRoom = {};
     run.shopRoom.initialized = true;
     run.shopRoom.removalPrice = 75;
-    run.shopRoom.noticeText = u8"카드 제거, 카드 구매, 유물 구매, 포션 구매를 한 번에 시험할 수 있습니다.";
+    run.shopRoom.noticeText = u8"상인을 눌러 물건을 살펴보십시오.";
+    run.shopRoom.uiOpen = false;
+    run.shopRoom.chatterIndex = 0;
+    run.shopRoom.chatterTimerSec = 0.0f;
 
     std::vector<CardData> cardOffers;
     std::vector<CardData> favoredPool = CardLibrary::BuildArchetypeRewardPool(run.selectedCardPackArchetype);
@@ -155,7 +158,7 @@ void InitializeShopRoom(RunStateData& run) {
         eraseChosenFromPool(fallbackPool, favoredCard.id);
     }
 
-    while (static_cast<int>(cardOffers.size()) < 3 && !fallbackPool.empty()) {
+    while (static_cast<int>(cardOffers.size()) < 7 && !fallbackPool.empty()) {
         const CardData pickedCard = PickFromPool(fallbackPool, rng);
         cardOffers.push_back(pickedCard);
         eraseChosenFromPool(fallbackPool, pickedCard.id);
@@ -172,23 +175,29 @@ void InitializeShopRoom(RunStateData& run) {
         run.shopRoom.offers.push_back(offer);
     }
 
-    ShopOfferState relicOffer = {};
-    relicOffer.id = 5100;
-    relicOffer.type = ShopOfferType::Relic;
-    relicOffer.relic = PickFromPool(relicPool, rng);
-    relicOffer.title = relicOffer.relic.name;
-    relicOffer.description = relicOffer.relic.description;
-    relicOffer.price = 140;
-    run.shopRoom.offers.push_back(relicOffer);
+    const std::vector<RelicData> relicOffers = PickDistinctFromPool(relicPool, rng, 3);
+    for (size_t index = 0; index < relicOffers.size(); ++index) {
+        ShopOfferState relicOffer = {};
+        relicOffer.id = 5100 + static_cast<int>(index);
+        relicOffer.type = ShopOfferType::Relic;
+        relicOffer.relic = relicOffers[index];
+        relicOffer.title = relicOffers[index].name;
+        relicOffer.description = relicOffers[index].description;
+        relicOffer.price = 140 + static_cast<int>(index) * 10;
+        run.shopRoom.offers.push_back(relicOffer);
+    }
 
-    ShopOfferState potionOffer = {};
-    potionOffer.id = 5200;
-    potionOffer.type = ShopOfferType::Potion;
-    potionOffer.potion = PickFromPool(potionPool, rng);
-    potionOffer.title = potionOffer.potion.name;
-    potionOffer.description = potionOffer.potion.description;
-    potionOffer.price = 55;
-    run.shopRoom.offers.push_back(potionOffer);
+    const std::vector<PotionData> potionOffers = PickDistinctFromPool(potionPool, rng, 3);
+    for (size_t index = 0; index < potionOffers.size(); ++index) {
+        ShopOfferState potionOffer = {};
+        potionOffer.id = 5200 + static_cast<int>(index);
+        potionOffer.type = ShopOfferType::Potion;
+        potionOffer.potion = potionOffers[index];
+        potionOffer.title = potionOffers[index].name;
+        potionOffer.description = potionOffers[index].description;
+        potionOffer.price = 50 + static_cast<int>(index) * 10;
+        run.shopRoom.offers.push_back(potionOffer);
+    }
 }
 
 EntityData BuildEnemyTemplateForRoom(RunNodeType type) {
@@ -247,33 +256,34 @@ void InitializeTreasureRoom(RunStateData& run) {
 
     run.treasureRoom = {};
     run.treasureRoom.initialized = true;
-    run.treasureRoom.introText = u8"보물방은 리워드처럼 보상을 고른 뒤 결과를 확인하고 돌아갑니다.";
+    run.treasureRoom.introText = u8"상자를 열면 골드와 유물, 때로는 포션까지 챙길 수 있습니다.";
+    run.treasureRoom.noticeText = u8"상자를 눌러 내용을 확인하십시오.";
+    run.treasureRoom.chestOpened = false;
+    run.treasureRoom.choiceCommitted = false;
+    run.treasureRoom.selectedChoiceId = -1;
+    run.treasureRoom.goldReward = 70 + static_cast<int>(rng() % 31);
+    run.treasureRoom.relicRewards = PickDistinctFromPool(relicPool, rng, 2);
 
-    const std::vector<RelicData> relicChoices = PickDistinctFromPool(relicPool, rng, 2);
-    for (size_t index = 0; index < relicChoices.size(); ++index) {
-        TreasureChoiceState choice = {};
-        choice.id = 6000 + static_cast<int>(index);
-        choice.title = relicChoices[index].name;
-        choice.description = relicChoices[index].description;
-        choice.grantRelic = true;
-        choice.relic = relicChoices[index];
-        run.treasureRoom.choices.push_back(choice);
+    if (run.potions.size() < kMaxPotionCount) {
+        std::uniform_int_distribution<int> potionRoll(1, 100);
+        if (potionRoll(rng) <= 45) {
+            run.treasureRoom.potionRewardAvailable = true;
+            run.treasureRoom.potionReward = PickFromPool(potionPool, rng);
+        }
     }
 
-    TreasureChoiceState goldChoice = {};
-    goldChoice.id = 6010;
-    goldChoice.title = u8"금화 더미";
-    goldChoice.description = u8"즉시 골드 90을 얻습니다.";
-    goldChoice.goldReward = 90;
-    run.treasureRoom.choices.push_back(goldChoice);
-
-    TreasureChoiceState potionChoice = {};
-    potionChoice.id = 6011;
-    potionChoice.title = u8"밀봉된 병";
-    potionChoice.description = u8"포션 1개를 얻습니다. 칸이 가득 차면 실패합니다.";
-    potionChoice.grantPotion = true;
-    potionChoice.potion = PickFromPool(potionPool, rng);
-    run.treasureRoom.choices.push_back(potionChoice);
+    BattleRewardState& rewards = run.treasureRoom.rewards;
+    rewards = {};
+    rewards.active = true;
+    rewards.title = u8"보물";
+    rewards.message = u8"상자에서 꺼낸 전리품을 챙긴 뒤 계속 전진하십시오.";
+    rewards.goldAvailable = true;
+    rewards.goldAmount = run.treasureRoom.goldReward;
+    rewards.potionAvailable = run.treasureRoom.potionRewardAvailable;
+    rewards.potion = run.treasureRoom.potionReward;
+    rewards.relicRewards = run.treasureRoom.relicRewards;
+    rewards.relicClaimed.assign(rewards.relicRewards.size(), 0);
+    rewards.cardRewardAvailable = false;
 }
 
 EventChoiceState MakeEventChoice(

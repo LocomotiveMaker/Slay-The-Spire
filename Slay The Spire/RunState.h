@@ -130,6 +130,24 @@ enum class ShopOfferType {
     Service
 };
 
+struct BattleRewardState {
+    bool active = false;
+    bool goldAvailable = false;
+    int goldAmount = 0;
+    bool goldClaimed = false;
+    bool potionAvailable = false;
+    bool potionClaimed = false;
+    bool cardRewardAvailable = false;
+    bool cardRewardClaimed = false;
+    bool cardSelectionOpen = false;
+    std::string title;
+    std::string message;
+    PotionData potion = {};
+    std::vector<RelicData> relicRewards;
+    std::vector<int> relicClaimed;
+    std::vector<CardData> cardChoices;
+};
+
 struct ShopOfferState {
     int id = 0;
     ShopOfferType type = ShopOfferType::Card;
@@ -144,9 +162,12 @@ struct ShopOfferState {
 
 struct ShopRoomState {
     bool initialized = false;
+    bool uiOpen = false;
     bool removeMode = false;
     bool removalUsed = false;
     int removalPrice = 75;
+    int chatterIndex = 0;
+    float chatterTimerSec = 0.0f;
     std::string noticeText;
     std::vector<ShopOfferState> offers;
 };
@@ -171,12 +192,18 @@ struct TreasureChoiceState {
 
 struct TreasureRoomState {
     bool initialized = false;
+    bool chestOpened = false;
     bool choiceCommitted = false;
     int selectedChoiceId = -1;
+    int goldReward = 0;
+    bool potionRewardAvailable = false;
+    PotionData potionReward = {};
+    std::vector<RelicData> relicRewards;
     std::string introText;
     std::string resultText;
     std::string noticeText;
     std::vector<TreasureChoiceState> choices;
+    BattleRewardState rewards = {};
 };
 
 struct EventChoiceState {
@@ -206,22 +233,6 @@ struct EventRoomState {
     std::vector<EventChoiceState> choices;
     std::string resultTitle;
     std::string resultText;
-};
-
-struct BattleRewardState {
-    bool active = false;
-    bool goldAvailable = false;
-    int goldAmount = 0;
-    bool goldClaimed = false;
-    bool potionAvailable = false;
-    bool potionClaimed = false;
-    bool cardRewardAvailable = false;
-    bool cardRewardClaimed = false;
-    bool cardSelectionOpen = false;
-    std::string title;
-    std::string message;
-    PotionData potion = {};
-    std::vector<CardData> cardChoices;
 };
 
 struct BattleRoomState {

@@ -10,11 +10,13 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "AudioManager.h"
 #include "AsciiArtLibrary.h"
 #include "ButtonUI.h"
+#include "CardArtLibrary.h"
 #include "CardUI.h"
 #include "CardLibrary.h"
 #include "CombatSystem.h"
@@ -45,6 +47,7 @@ struct Rect {
 };
 
 void RenderFrameBox(ScreenManager& screen, const Rect& rect, WORD color);
+void RenderWrappedText(ScreenManager& screen, int x, int y, int width, const string& text, WORD color);
 
 enum class EndingStage {
     None,
@@ -52,6 +55,12 @@ enum class EndingStage {
     DefeatRecord,
     VictoryReveal,
     VictorySummary
+};
+
+enum class SpeechTailStyle {
+    None,
+    BottomRight,
+    TopRight
 };
 
 int GetTargetRefreshRate() {
@@ -235,7 +244,11 @@ const std::vector<ArtPreviewEntry>& GetArtPreviewEntries() {
         { AsciiArtId::EnemyNormal, u8"적 기본", COLOR_WHITE },
         { AsciiArtId::EnemyElite, u8"적 엘리트", COLOR_YELLOW },
         { AsciiArtId::EnemyBoss, u8"적 보스", COLOR_RED },
-        { AsciiArtId::Neow, u8"니오우", COLOR_WHITE }
+        { AsciiArtId::Neow, u8"니오우", COLOR_WHITE },
+        { AsciiArtId::Merchant, u8"상인", COLOR_WHITE },
+        { AsciiArtId::TreasureChestClosed, u8"보물 상자(닫힘)", COLOR_YELLOW },
+        { AsciiArtId::TreasureChestOpen, u8"보물 상자(열림)", COLOR_YELLOW },
+        { AsciiArtId::Campfire, u8"모닥불", COLOR_RED | COLOR_GREEN | FOREGROUND_INTENSITY }
     };
     return kEntries;
 }
@@ -270,6 +283,113 @@ WORD GetCardTypeFrameColor(CardType type) {
 
 bool IsGroundUsableCard(const CardData& card) {
     return card.type == CardType::Skill || card.type == CardType::Power;
+}
+
+std::wstring BuildRotatingAudioAlias(const std::wstring& aliasBase, int& aliasCounter) {
+    const int slot = aliasCounter++ % 16;
+    return aliasBase + L"_" + std::to_wstring(slot);
+}
+
+const std::wstring& PickRandomAudio(const std::vector<std::wstring>& pool, std::mt19937& rng) {
+    static const std::wstring kEmpty;
+    if (pool.empty()) {
+        return kEmpty;
+    }
+    if (pool.size() == 1) {
+        return pool.front();
+    }
+
+    std::uniform_int_distribution<size_t> dist(0, pool.size() - 1);
+    return pool[dist(rng)];
+}
+
+void PlayRandomEffect(AudioManager& audio, const std::vector<std::wstring>& pool, const std::wstring& aliasBase, std::mt19937& rng, int& aliasCounter, bool enabled, bool loop = false) {
+    if (!enabled || pool.empty()) {
+        return;
+    }
+    audio.PlayEffect(PickRandomAudio(pool, rng), loop ? aliasBase : BuildRotatingAudioAlias(aliasBase, aliasCounter), loop);
+}
+
+void PlayFixedEffect(AudioManager& audio, const std::wstring& filename, const std::wstring& aliasBase, int& aliasCounter, bool enabled, bool loop = false) {
+    if (!enabled || filename.empty()) {
+        return;
+    }
+    audio.PlayEffect(filename, loop ? aliasBase : BuildRotatingAudioAlias(aliasBase, aliasCounter), loop);
+}
+
+void StopLoopEffect(AudioManager& audio, const std::wstring& aliasBase) {
+    audio.StopEffect(aliasBase);
+}
+
+void UpdateButtonAudio(
+    const ButtonUI& button,
+    const std::string& key,
+    AudioManager& audio,
+    const std::vector<std::wstring>& hoverPool,
+    const std::vector<std::wstring>& clickPool,
+    std::unordered_map<std::string, bool>& hoverLatch,
+    std::mt19937& rng,
+    int& aliasCounter,
+    bool enabled) {
+    const bool hovered = button.IsHovered();
+    const bool wasHovered = hoverLatch[key];
+    if (hovered && !wasHovered) {
+        PlayRandomEffect(audio, hoverPool, L"sfx_ui_hover", rng, aliasCounter, enabled);
+    }
+    if (button.IsClicked()) {
+        PlayRandomEffect(audio, clickPool, L"sfx_ui_click", rng, aliasCounter, enabled);
+    }
+    hoverLatch[key] = hovered;
+}
+
+void UpdateRectHoverAudio(
+    bool hovered,
+    const std::string& key,
+    AudioManager& audio,
+    const std::vector<std::wstring>& hoverPool,
+    std::unordered_map<std::string, bool>& hoverLatch,
+    std::mt19937& rng,
+    int& aliasCounter,
+    bool enabled) {
+    const bool wasHovered = hoverLatch[key];
+    if (hovered && !wasHovered) {
+        PlayRandomEffect(audio, hoverPool, L"sfx_hover_misc", rng, aliasCounter, enabled);
+    }
+    hoverLatch[key] = hovered;
+}
+
+bool IsHeavyAttackCard(const CardData& card) {
+    switch (card.id) {
+    case CardLibrary::Id::ComboFinisher:
+    case CardLibrary::Id::WhirlBeat:
+    case CardLibrary::Id::HeavyStrike:
+    case CardLibrary::Id::GiantArm:
+    case CardLibrary::Id::WallCollapse:
+    case CardLibrary::Id::ShieldSpin:
+        return true;
+    default:
+        return card.cost >= 3;
+    }
+}
+
+bool IsSpecialAttackCard(const CardData& card) {
+    switch (card.id) {
+    case CardLibrary::Id::RepeatingStab:
+    case CardLibrary::Id::FrenzyCuts:
+    case CardLibrary::Id::BouncingBlade:
+    case CardLibrary::Id::ShredBurst:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool IsFireAttackCard(const CardData& card) {
+    return card.id == CardLibrary::Id::BloodAccelerate;
+}
+
+bool IsThunderCard(const CardData& card) {
+    return card.id == CardLibrary::Id::HeavyStrike || card.id == CardLibrary::Id::StrengthTraining;
 }
 
 std::vector<std::string> GetBigEnergyRows(int energy, int maxEnergy) {
@@ -327,6 +447,92 @@ void RenderBigEnergy(ScreenManager& screen, const Rect& rect, int energy, int ma
     for (int row = 0; row < static_cast<int>(rows.size()); ++row) {
         screen.DrawString(rect.x + 2, startY + row, rows[static_cast<size_t>(row)], color);
     }
+}
+
+std::string BuildCompactCardTypeLabel(CardType type) {
+    switch (type) {
+    case CardType::Attack: return u8"공격";
+    case CardType::Skill: return u8"스킬";
+    case CardType::Power: return u8"파워";
+    default: return u8"기타";
+    }
+}
+
+void RenderSpeechBubble(ScreenManager& screen, const Rect& rect, const std::string& text, WORD color, SpeechTailStyle tailStyle) {
+    RenderFrameBox(screen, rect, color);
+    RenderWrappedText(screen, rect.x + 2, rect.y + 1, rect.width - 4, text, color);
+
+    switch (tailStyle) {
+    case SpeechTailStyle::BottomRight:
+        screen.DrawString(rect.x + rect.width - 4, rect.y + rect.height - 1, "\\", color);
+        screen.DrawString(rect.x + rect.width - 3, rect.y + rect.height, " \\", color);
+        break;
+    case SpeechTailStyle::TopRight:
+        screen.DrawString(rect.x + rect.width - 5, rect.y - 1, "/\\", color);
+        screen.DrawString(rect.x + rect.width - 4, rect.y - 2, "|", color);
+        break;
+    default:
+        break;
+    }
+}
+
+void RenderCompactCardOffer(ScreenManager& screen, const Rect& rect, const CardData& card, int price, bool sold, bool hovered) {
+    const WORD accentColor = sold ? FOREGROUND_INTENSITY : (hovered ? COLOR_YELLOW : GetCardTypeFrameColor(card.type));
+    RenderFrameBox(screen, rect, accentColor);
+    screen.DrawString(rect.x + 1, rect.y + 1, TextLayout::AlignToWidth(TextLayout::Utf8ToWide("[" + to_string(card.cost) + "]"), rect.width - 2, TextLayout::HorizontalAlign::Left), accentColor);
+    screen.DrawString(rect.x + 1, rect.y + 2, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(card.name), rect.width - 2, TextLayout::HorizontalAlign::Center), sold ? FOREGROUND_INTENSITY : COLOR_WHITE);
+
+    const vector<string>& artLines = CardArtLibrary::Get(card);
+    for (int artIndex = 0; artIndex < 5 && artIndex < static_cast<int>(artLines.size()) && (rect.y + 3 + artIndex) < (rect.y + rect.height - 3); ++artIndex) {
+        const std::wstring artLine = TextLayout::Utf8ToWide(artLines[static_cast<size_t>(artIndex)]);
+        screen.DrawString(rect.x + 1, rect.y + 3 + artIndex, TextLayout::AlignToWidth(artLine, rect.width - 2, TextLayout::HorizontalAlign::Center), sold ? FOREGROUND_INTENSITY : accentColor);
+    }
+
+    const int footerY = rect.y + rect.height - 3;
+    screen.DrawString(rect.x + 1, footerY, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCompactCardTypeLabel(card.type)), rect.width - 2, TextLayout::HorizontalAlign::Center), FOREGROUND_INTENSITY);
+    screen.DrawString(rect.x + 1, rect.y + rect.height - 2, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(sold ? u8"구매 완료" : (to_string(price) + u8"G")), rect.width - 2, TextLayout::HorizontalAlign::Center), sold ? FOREGROUND_INTENSITY : COLOR_YELLOW);
+}
+
+const std::vector<std::vector<std::string>>& GetCampfireAnimFrames() {
+    static const std::vector<std::vector<std::string>> kFrames = {
+        {
+            u8"          (  )    ( )",
+            u8"         (   )   (   )",
+            u8"          \\  /\\  //",
+            u8"           \\/  \\//",
+            u8"        ____\\  //____",
+            u8"       /_____/\\\\_____\\",
+            u8"            /__\\\\"
+        },
+        {
+            u8"           ( )    (  )",
+            u8"         (  ** ) ( ** )",
+            u8"           \\/ /\\ \\\\",
+            u8"            /_/  \\_\\",
+            u8"        ____\\    //____",
+            u8"       /_____/\\\\_____\\",
+            u8"            /__\\\\"
+        },
+        {
+            u8"          ( ** )  ( )",
+            u8"         (   )   ( ** )",
+            u8"            \\ /\\ //",
+            u8"             \\  //",
+            u8"        ____//||\\\\____",
+            u8"       /_____/\\\\_____\\",
+            u8"            /__\\\\"
+        },
+        {
+            u8"           (  )   ( )",
+            u8"         ( ** ) (   )",
+            u8"           //\\  /\\\\",
+            u8"          //  \\/  \\\\",
+            u8"        ____\\\\  //____",
+            u8"       /_____/\\\\_____\\",
+            u8"            /__\\\\"
+        }
+    };
+    return kFrames;
 }
 
 int MeasureArtWidth(const std::vector<std::string>& lines) {
@@ -428,6 +634,13 @@ std::vector<std::string> BuildStatusTooltipLines(const std::string& key, int val
         return { string(u8"독 ") + std::to_string(value), u8"행위가 끝날 때 독 수치만큼 피해를 받고 1 감소합니다." };
     }
     return { key + " " + std::to_string(value) };
+}
+
+std::vector<std::string> BuildRelicTooltipLines(const RelicData& relic) {
+    if (relic.name.empty() && relic.description.empty()) {
+        return {};
+    }
+    return { relic.name, relic.description };
 }
 
 bool RectFitsInside(const Rect& outer, const Rect& inner) {
@@ -763,9 +976,19 @@ BattleRewardState BuildBattleRewardState(const RunStateData& run, RunNodeType ro
 }
 
 bool HasBattleRewardItemsRemaining(const BattleRewardState& reward) {
+    bool unclaimedRelic = false;
+    for (size_t index = 0; index < reward.relicRewards.size(); ++index) {
+        const bool claimed = (index < reward.relicClaimed.size()) && (reward.relicClaimed[index] != 0);
+        if (!claimed) {
+            unclaimedRelic = true;
+            break;
+        }
+    }
+
     return (reward.goldAvailable && !reward.goldClaimed) ||
         (reward.potionAvailable && !reward.potionClaimed) ||
-        (reward.cardRewardAvailable && !reward.cardRewardClaimed);
+        (reward.cardRewardAvailable && !reward.cardRewardClaimed) ||
+        unclaimedRelic;
 }
 
 string BuildPotionActionText(const PotionData& potion) {
@@ -929,6 +1152,133 @@ int main() {
     float powerBannerTimerSec = 0.0f;
     bool artPreviewOpen = false;
     int artPreviewIndex = 0;
+    std::mt19937 audioRng(std::random_device{}());
+    int audioAliasCounter = 0;
+    std::unordered_map<std::string, bool> hoverAudioLatch;
+    bool titleWindActive = false;
+    bool restFireActive = false;
+    std::wstring restFireLoopFile;
+    int lastHoveredMapNodeId = -1;
+    bool lastMapOverlayOpen = false;
+    bool lastDeckOverlayOpen = false;
+    bool lastShopUiOpen = false;
+    bool lastShopRemoveMode = false;
+    bool neowVoicePlayed = false;
+    const std::vector<std::wstring> uiHoverPool = { L"sfx\\SOTE_SFX_UIHover_v2.wav" };
+    const std::vector<std::wstring> uiClickPool = { L"sfx\\SOTE_SFX_UIClick_1_v2.wav", L"sfx\\SOTE_SFX_UIClick_2_v2.wav" };
+    const std::vector<std::wstring> cardSelectPool = { L"sfx\\SOTE_SFX_CardSelect_v2.ogg" };
+    const std::vector<std::wstring> cardRejectPool = { L"sfx\\SOTE_SFX_CardReject_v1.ogg" };
+    const std::vector<std::wstring> gainDefensePool = {
+        L"sfx\\SOTE_SFX_GainDefense_RR1_v3.ogg",
+        L"sfx\\SOTE_SFX_GainDefense_RR2_v3.ogg",
+        L"sfx\\SOTE_SFX_GainDefense_RR3_v3.ogg"
+    };
+    const std::vector<std::wstring> buffPool = {
+        L"sfx\\SOTE_SFX_Buff_1_v1.ogg",
+        L"sfx\\SOTE_SFX_Buff_2_v1.ogg",
+        L"sfx\\SOTE_SFX_Buff_3_v1.ogg"
+    };
+    const std::vector<std::wstring> debuffPool = {
+        L"sfx\\SOTE_SFX_Debuff_1_v1.ogg",
+        L"sfx\\SOTE_SFX_Debuff_2_v1.ogg",
+        L"sfx\\SOTE_SFX_Debuff_3_v1.ogg"
+    };
+    const std::vector<std::wstring> potionDropPool = {
+        L"sfx\\SOTE_SFX_DropPotion_1_v1.ogg",
+        L"sfx\\SOTE_SFX_DropPotion_2_v1.ogg"
+    };
+    const std::vector<std::wstring> relicDropPool = {
+        L"sfx\\SOTE_SFX_DropRelic_Clink.ogg",
+        L"sfx\\SOTE_SFX_DropRelic_Flat.ogg",
+        L"sfx\\SOTE_SFX_DropRelic_Heavy.ogg",
+        L"sfx\\SOTE_SFX_DropRelic_Magical.ogg",
+        L"sfx\\SOTE_SFX_DropRelic_Rocky.ogg"
+    };
+    const std::vector<std::wstring> healShortPool = {
+        L"sfx\\SOTE_SFX_HealShort_1_v2.ogg",
+        L"sfx\\SOTE_SFX_HealShort_2_v2.ogg",
+        L"sfx\\SOTE_SFX_HealShort_3_v2.ogg"
+    };
+    const std::vector<std::wstring> goldRewardPool = {
+        L"sfx\\SOTE_SFX_Gold_RR1_v3.ogg",
+        L"sfx\\SOTE_SFX_Gold_RR2_v3.ogg",
+        L"sfx\\SOTE_SFX_Gold_RR3_v3.ogg",
+        L"sfx\\SOTE_SFX_Gold_RR4_v3.ogg",
+        L"sfx\\SOTE_SFX_Gold_RR5_v3.ogg"
+    };
+    const std::vector<std::wstring> mapHoverPool = {
+        L"sfx\\SOTE_SFX_MapHover_1_v1.ogg",
+        L"sfx\\SOTE_SFX_MapHover_2_v1.ogg",
+        L"sfx\\SOTE_SFX_MapHover_3_v1.ogg",
+        L"sfx\\SOTE_SFX_MapHover_4_v1.ogg"
+    };
+    const std::vector<std::wstring> mapSelectPool = {
+        L"sfx\\SOTE_SFX_MapSelect_1_v1.ogg",
+        L"sfx\\SOTE_SFX_MapSelect_2_v1.ogg",
+        L"sfx\\SOTE_SFX_MapSelect_3_v1.ogg",
+        L"sfx\\SOTE_SFX_MapSelect_4_v1.ogg"
+    };
+    const std::vector<std::wstring> mapOpenPool = {
+        L"sfx\\SOTE_SFX_Map_1_v3.ogg",
+        L"sfx\\SOTE_SFX_Map_2_v3.ogg"
+    };
+    const std::vector<std::wstring> battleStartPool = {
+        L"sfx\\STS_SFX_BattleStart_1_v1.ogg",
+        L"sfx\\STS_SFX_BattleStart_2_v1.ogg"
+    };
+    const std::vector<std::wstring> potionUsePool = {
+        L"sfx\\SOTE_SFX_Potion_1_v2.ogg",
+        L"sfx\\SOTE_SFX_Potion_2_v2.ogg",
+        L"sfx\\SOTE_SFX_Potion_3_v2.ogg"
+    };
+    const std::vector<std::wstring> restFirePool = {
+        L"sfx\\SOTE_SFX_RestFireDry_v2.ogg",
+        L"sfx\\SOTE_SFX_RestFireWet_v2.ogg"
+    };
+    const std::vector<std::wstring> parchmentPool = {
+        L"sfx\\SOTE_SFX_UI_Parchment_1_v2.ogg",
+        L"sfx\\SOTE_SFX_UI_Parchment_2_v1.ogg",
+        L"sfx\\SOTE_SFX_UI_Parchment_3_v1.ogg"
+    };
+    const std::vector<std::wstring> sleepJinglePool = {
+        L"sfx\\STS_SleepJingle_1a_NewMix_v1.ogg",
+        L"sfx\\STS_SleepJingle_1b_NewMix_v1.ogg",
+        L"sfx\\STS_SleepJingle_1c_NewMix_v1.ogg"
+    };
+    const std::vector<std::wstring> merchantIdleVoicePool = {
+        L"voice\\STS_VO_Merchant_Mlyah_a.ogg",
+        L"voice\\STS_VO_Merchant_Mlyah_b.ogg",
+        L"voice\\STS_VO_Merchant_Mlyah_c.ogg"
+    };
+    const std::vector<std::wstring> merchantOpenVoicePool = {
+        L"voice\\STS_VO_Merchant_3a.ogg",
+        L"voice\\STS_VO_Merchant_3b.ogg",
+        L"voice\\STS_VO_Merchant_3c.ogg"
+    };
+    const std::vector<std::wstring> merchantBuyVoicePool = {
+        L"voice\\STS_VO_Merchant_Kekeke_a.ogg",
+        L"voice\\STS_VO_Merchant_Kekeke_b.ogg",
+        L"voice\\STS_VO_Merchant_Kekeke_c.ogg"
+    };
+    const std::vector<std::wstring> merchantNoGoldVoicePool = {
+        L"voice\\STS_VO_Merchant_2a.ogg",
+        L"voice\\STS_VO_Merchant_2b.ogg",
+        L"voice\\STS_VO_Merchant_2c.ogg"
+    };
+    const std::vector<std::wstring> neowVoicePool = {
+        L"voice\\STS_VO_Neow_1a.ogg",
+        L"voice\\STS_VO_Neow_1b.ogg",
+        L"voice\\STS_VO_Neow_2a.ogg",
+        L"voice\\STS_VO_Neow_2b.ogg",
+        L"voice\\STS_VO_Neow_3a.ogg",
+        L"voice\\STS_VO_Neow_3b.ogg"
+    };
+    const std::vector<std::wstring> deathMusicPool = {
+        L"BGM\\STS_DeathStinger_1_v3_MUSIC.ogg",
+        L"BGM\\STS_DeathStinger_2_v3_MUSIC.ogg",
+        L"BGM\\STS_DeathStinger_3_v3_MUSIC.ogg",
+        L"BGM\\STS_DeathStinger_4_v3_MUSIC.ogg"
+    };
 
     auto reloadRecords = [&]() {
         runRecords = SaveManager::LoadRunRecords();
@@ -977,6 +1327,18 @@ int main() {
             track = (run.currentRoomType == RunNodeType::Boss && run.won) ? L"The Guardian Emerges.wav" : L"Exordium.wav";
             targetPercent = 40;
         }
+        else if (!run.roomResolved && run.currentRoomType == RunNodeType::Shop) {
+            track = L"BGM\\STS_Merchant_NewMix_v1.ogg";
+            targetPercent = 100;
+            fadeOutSec = 0.15f;
+            fadeInSec = 0.25f;
+        }
+        else if (!run.roomResolved && run.currentRoomType == RunNodeType::Event) {
+            track = L"BGM\\SOTE_Level1_Ambience_v6.ogg";
+            targetPercent = 70;
+            fadeOutSec = 0.2f;
+            fadeInSec = 0.3f;
+        }
         else if (!run.roomResolved && run.currentRoomType == RunNodeType::Boss) {
             track = L"The Guardian Emerges.wav";
             targetPercent = 100;
@@ -1019,6 +1381,9 @@ int main() {
         endingRevealProgress = 0.0f;
         animatedPackIndex = -1;
         cardPackPanelProgress = 0.0f;
+        neowVoicePlayed = false;
+        lastHoveredMapNodeId = -1;
+        hoverAudioLatch.clear();
         queueRoomBgm();
         };
 
@@ -1046,6 +1411,9 @@ int main() {
         endingRevealProgress = 0.0f;
         animatedPackIndex = (run.selectedStarterPackIndex >= 0) ? run.selectedStarterPackIndex : -1;
         cardPackPanelProgress = (run.selectedStarterPackIndex >= 0) ? 1.0f : 0.0f;
+        neowVoicePlayed = (run.scene != RunSceneType::CardPackSelect);
+        lastHoveredMapNodeId = -1;
+        hoverAudioLatch.clear();
         queueRoomBgm();
         return true;
         };
@@ -1064,6 +1432,9 @@ int main() {
         endingRevealProgress = 0.0f;
         animatedPackIndex = -1;
         cardPackPanelProgress = 0.0f;
+        neowVoicePlayed = false;
+        lastHoveredMapNodeId = -1;
+        hoverAudioLatch.clear();
         audio.QueueBGMFade(L"Slay the Spire.wav", 100.0f, 0.2f, 0.45f);
         lastQueuedBgmTrack = L"Slay the Spire.wav";
         lastQueuedBgmPercent = 100;
@@ -1256,6 +1627,79 @@ int main() {
             queueRoomBgm();
         }
 
+        if (appState == AppState::Title && settings.effectsEnabled) {
+            if (!titleWindActive) {
+                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_WindAmb_v1.ogg", L"amb_title_wind", audioAliasCounter, true, true);
+                titleWindActive = true;
+            }
+        }
+        else if (titleWindActive) {
+            StopLoopEffect(audio, L"amb_title_wind");
+            titleWindActive = false;
+        }
+
+        const bool mapOverlayOpen = (appState == AppState::Run && run.overlay == RunOverlayType::Map);
+        if (mapOverlayOpen && !lastMapOverlayOpen) {
+            PlayRandomEffect(audio, mapOpenPool, L"sfx_map_open", audioRng, audioAliasCounter, settings.effectsEnabled);
+        }
+        lastMapOverlayOpen = mapOverlayOpen;
+
+        const bool deckOverlayOpen = (appState == AppState::Run && run.overlay == RunOverlayType::Deck);
+        if (deckOverlayOpen && !lastDeckOverlayOpen) {
+            PlayRandomEffect(audio, parchmentPool, L"sfx_deck_open", audioRng, audioAliasCounter, settings.effectsEnabled);
+        }
+        lastDeckOverlayOpen = deckOverlayOpen;
+
+        const bool shopUiOpenNow =
+            (appState == AppState::Run &&
+                run.scene == RunSceneType::Room &&
+                !run.roomResolved &&
+                run.currentRoomType == RunNodeType::Shop &&
+                run.shopRoom.uiOpen);
+        if (shopUiOpenNow != lastShopUiOpen) {
+            PlayFixedEffect(
+                audio,
+                shopUiOpenNow ? L"sfx\\SOTE_SFX_ShopRugOpen_v1.ogg" : L"sfx\\SOTE_SFX_ShopRugClose_v1.ogg",
+                shopUiOpenNow ? L"sfx_shop_open" : L"sfx_shop_close",
+                audioAliasCounter,
+                settings.effectsEnabled);
+        }
+        lastShopUiOpen = shopUiOpenNow;
+
+        const bool shopRemoveModeNow =
+            (appState == AppState::Run &&
+                run.scene == RunSceneType::Room &&
+                !run.roomResolved &&
+                run.currentRoomType == RunNodeType::Shop &&
+                run.shopRoom.uiOpen &&
+                run.shopRoom.removeMode);
+        if (shopRemoveModeNow && !lastShopRemoveMode) {
+            PlayRandomEffect(audio, parchmentPool, L"sfx_shop_remove_open", audioRng, audioAliasCounter, settings.effectsEnabled);
+        }
+        lastShopRemoveMode = shopRemoveModeNow;
+
+        const bool restFireShouldPlay =
+            (settings.effectsEnabled &&
+                appState == AppState::Run &&
+                run.scene == RunSceneType::Room &&
+                !run.roomResolved &&
+                run.currentRoomType == RunNodeType::Rest);
+        if (restFireShouldPlay) {
+            if (restFireLoopFile.empty()) {
+                restFireLoopFile = PickRandomAudio(restFirePool, audioRng);
+            }
+            if (!restFireActive) {
+                PlayFixedEffect(audio, restFireLoopFile, L"amb_rest_fire", audioAliasCounter, true, true);
+                restFireActive = true;
+            }
+            audio.UpdateSpatialVolume(screen.GetCenterX() + 18, screen.GetHeight() - 6, mouseX, mouseY, L"amb_rest_fire", 36);
+        }
+        else if (restFireActive) {
+            StopLoopEffect(audio, L"amb_rest_fire");
+            restFireActive = false;
+            restFireLoopFile.clear();
+        }
+
         screen.Clear();
 
         if (appState == AppState::Title) {
@@ -1289,9 +1733,11 @@ int main() {
             addTitleButton(u8"종료");
 
             const bool titleButtonsInteractive = (titleOverlay == TitleOverlayType::None);
-            for (auto& button : titleButtons) {
+            for (size_t buttonIndex = 0; buttonIndex < titleButtons.size(); ++buttonIndex) {
+                ButtonUI& button = titleButtons[buttonIndex];
                 if (titleButtonsInteractive) {
                     button.Update(input);
+                    UpdateButtonAudio(button, "title_main_" + to_string(buttonIndex), audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 }
                 button.Render(screen);
             }
@@ -1362,6 +1808,11 @@ int main() {
                 btnToggleChar.Update(input);
                 btnToggleAsc.Update(input);
                 btnClose.Update(input);
+                UpdateButtonAudio(btnToggleEffects, "title_settings_effects", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnToggleDebug, "title_settings_debug", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnToggleChar, "title_settings_char", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnToggleAsc, "title_settings_asc", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnClose, "title_settings_close", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
 
                 btnToggleEffects.Render(screen);
                 btnToggleDebug.Render(screen);
@@ -1390,8 +1841,9 @@ int main() {
                 RenderFrameBox(screen, popup, COLOR_YELLOW);
                 RenderPanelTitle(screen, popup, u8"기록", COLOR_YELLOW);
 
-                ButtonUI btnBack(popup.x + popup.width - 22, popup.y + popup.height - 5, 18, 4, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
+                ButtonUI btnBack(popup.x + popup.width - 24, popup.y + popup.height - 5, 20, 4, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
                 btnBack.Update(input);
+                UpdateButtonAudio(btnBack, "title_records_back", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 btnBack.Render(screen);
 
                 if (pressedEsc || btnBack.IsClicked()) {
@@ -1400,7 +1852,7 @@ int main() {
 
                 if (!runRecords.empty()) {
                     const int listTop = popup.y + 5;
-                    const int visibleCount = popup.height - 12;
+                    const int visibleCount = popup.height - 13;
                     if (input.GetWheelDelta() != 0) {
                         recordsScroll -= input.GetWheelDelta();
                     }
@@ -1428,7 +1880,7 @@ int main() {
                     selectedRecordIndex = (std::max)(0, (std::min)(selectedRecordIndex, static_cast<int>(runRecords.size()) - 1));
                     const RunRecordData& selectedRecord = runRecords[static_cast<size_t>(selectedRecordIndex)];
 
-                    const Rect detailRect = { popup.x + popup.width / 2, popup.y + 2, popup.width / 2 - 3, popup.height - 4 };
+                    const Rect detailRect = { popup.x + popup.width / 2, popup.y + 1, popup.width / 2 - 3, popup.height - 9 };
                     RenderFrameBox(screen, detailRect, COLOR_WHITE);
                     RenderPanelTitle(screen, detailRect, selectedRecord.won ? u8"승리 기록" : u8"패배 기록", selectedRecord.won ? COLOR_GREEN : COLOR_RED);
 
@@ -1454,6 +1906,8 @@ int main() {
                 ButtonUI btnNo(popup.x + popup.width - 19, popup.y + popup.height - 4, 12, 3, u8"아니오", COLOR_WHITE, COLOR_YELLOW);
                 btnYes.Update(input);
                 btnNo.Update(input);
+                UpdateButtonAudio(btnYes, "title_confirm_yes", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnNo, "title_confirm_no", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 btnYes.Render(screen);
                 btnNo.Render(screen);
 
@@ -1483,6 +1937,8 @@ int main() {
                 ButtonUI btnBack(popup.x + popup.width - 21, popup.y + popup.height - 4, 16, 3, u8"뒤로", COLOR_WHITE, COLOR_YELLOW);
                 btnContinue.Update(input);
                 btnBack.Update(input);
+                UpdateButtonAudio(btnContinue, "title_pick_continue", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnBack, "title_pick_back", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 btnContinue.Render(screen);
                 btnBack.Render(screen);
 
@@ -1577,8 +2033,11 @@ int main() {
                 if (showRunNavigation) {
                     btnMap.Update(input);
                     btnDeck.Update(input);
+                    UpdateButtonAudio(btnMap, "run_hud_map", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                    UpdateButtonAudio(btnDeck, "run_hud_deck", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 }
                 btnSettings.Update(input);
+                UpdateButtonAudio(btnSettings, "run_hud_settings", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
 
                 if (showRunNavigation && btnMap.IsClicked()) {
                     activeSliderId = -1;
@@ -1623,6 +2082,10 @@ int main() {
 
             if (run.scene == RunSceneType::CardPackSelect) {
                 const bool cardPackInputAllowed = (run.overlay == RunOverlayType::None);
+                if (!neowVoicePlayed) {
+                    PlayRandomEffect(audio, neowVoicePool, L"vo_neow_intro", audioRng, audioAliasCounter, settings.effectsEnabled);
+                    neowVoicePlayed = true;
+                }
                 const std::vector<int> offeredPackIndices = BuildStarterPackOfferIndices(run.seed, static_cast<int>(starterPacks.size()), 3);
                 const std::vector<std::string>& playerCardPackArt = AsciiArtLibrary::Get(AsciiArtId::PlayerCardPack);
                 const std::vector<std::string>& neowArt = AsciiArtLibrary::Get(AsciiArtId::Neow);
@@ -1708,6 +2171,7 @@ int main() {
                         run.selectedStarterPackIndex = packIndex;
                         animatedPackIndex = packIndex;
                         cardPackPanelProgress = (std::max)(cardPackPanelProgress, 0.35f);
+                        PlayRandomEffect(audio, cardSelectPool, L"sfx_card_pack_select", audioRng, audioAliasCounter, settings.effectsEnabled);
                     }
                 }
 
@@ -1850,10 +2314,11 @@ int main() {
                 ButtonUI btnConfirm(screen.GetCenterX() - 12, screen.GetHeight() - 4, 24, 3, u8"이 카드팩으로 시작", COLOR_WHITE, COLOR_YELLOW);
                 if (run.selectedStarterPackIndex >= 0 && cardPackInputAllowed) {
                     btnConfirm.Update(input);
+                    UpdateButtonAudio(btnConfirm, "cardpack_confirm", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 }
                 btnConfirm.Render(screen);
                 if (run.selectedStarterPackIndex < 0) {
-                    screen.DrawString(screen.GetCenterX() - 13, screen.GetHeight() - 10, u8"먼저 카드팩을 선택하세요.", FOREGROUND_INTENSITY);
+                    screen.DrawString(screen.GetCenterX() + 14, screen.GetHeight() - 3, u8"먼저 카드팩을 선택하세요.", FOREGROUND_INTENSITY);
                 }
                 else if (btnConfirm.IsClicked()) {
                     ApplyStarterPack(run, starterPacks[static_cast<size_t>(run.selectedStarterPackIndex)]);
@@ -1878,6 +2343,137 @@ int main() {
                     SaveManager::SaveContinueRun(run);
                     queueRoomBgm();
                     };
+
+                const auto renderRewardPanel = [&](BattleRewardState& rewards, const Rect& rewardRect, const std::string& continueLabel) {
+                    RenderFrameBox(screen, rewardRect, COLOR_YELLOW);
+                    RenderPanelTitle(screen, rewardRect, rewards.title, COLOR_YELLOW);
+
+                    bool continueRequested = false;
+
+                    if (rewards.cardSelectionOpen && rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
+                        const int cardTop = rewardRect.y + 5;
+                        const int cardSpacing = 24;
+                        for (size_t choiceIndex = 0; choiceIndex < rewards.cardChoices.size(); ++choiceIndex) {
+                            Rect cardRect = { rewardRect.x + 4 + static_cast<int>(choiceIndex) * cardSpacing, cardTop, 22, 14 };
+                            RenderFrameBox(screen, cardRect, cardRect.Contains(mouseX, mouseY) ? COLOR_YELLOW : COLOR_WHITE);
+                            screen.DrawString(cardRect.x + 2, cardRect.y + 1, rewards.cardChoices[choiceIndex].name, COLOR_WHITE);
+                            screen.DrawString(cardRect.x + 2, cardRect.y + 2, string(u8"코스트 ") + to_string(rewards.cardChoices[choiceIndex].cost), COLOR_YELLOW);
+                            RenderWrappedText(screen, cardRect.x + 2, cardRect.y + 4, cardRect.width - 4, rewards.cardChoices[choiceIndex].description, COLOR_WHITE);
+
+                            if (cardRect.Contains(mouseX, mouseY) && input.IsLeftClickDown() && run.overlay == RunOverlayType::None) {
+                                run.deck.push_back(rewards.cardChoices[choiceIndex]);
+                                rewards.cardRewardClaimed = true;
+                                rewards.cardSelectionOpen = false;
+                                rewards.cardChoices.clear();
+                                SaveManager::SaveContinueRun(run);
+                                PlayRandomEffect(audio, cardSelectPool, L"sfx_reward_card_pick", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                break;
+                            }
+                        }
+
+                        ButtonUI btnSkip(rewardRect.x + rewardRect.width / 2 - 8, rewardRect.y + rewardRect.height - 4, 16, 3, u8"넘기기", COLOR_WHITE, COLOR_YELLOW);
+                        if (run.overlay == RunOverlayType::None) {
+                            btnSkip.Update(input);
+                            UpdateButtonAudio(btnSkip, "reward_skip", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                        }
+                        btnSkip.Render(screen);
+                        if (btnSkip.IsClicked()) {
+                            rewards.cardSelectionOpen = false;
+                        }
+                    }
+                    else {
+                        int rewardButtonY = rewardRect.y + 5;
+
+                        if (rewards.goldAvailable && !rewards.goldClaimed) {
+                            ButtonUI btnGold(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, to_string(rewards.goldAmount) + u8" 골드", COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnGold.Update(input);
+                                UpdateButtonAudio(btnGold, "reward_gold", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            btnGold.Render(screen);
+                            if (btnGold.IsClicked()) {
+                                run.gold += rewards.goldAmount;
+                                rewards.goldClaimed = true;
+                                SaveManager::SaveContinueRun(run);
+                                PlayRandomEffect(audio, goldRewardPool, L"sfx_reward_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            rewardButtonY += 5;
+                        }
+
+                        if (rewards.potionAvailable && !rewards.potionClaimed) {
+                            ButtonUI btnPotion(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, rewards.potion.name, COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnPotion.Update(input);
+                                UpdateButtonAudio(btnPotion, "reward_potion", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            btnPotion.Render(screen);
+                            screen.DrawString(rewardRect.x + 6, rewardButtonY + 1, BuildPotionActionText(rewards.potion), FOREGROUND_INTENSITY);
+                            if (btnPotion.IsClicked()) {
+                                if (HasPotionSlot(run)) {
+                                    run.potions.push_back(rewards.potion);
+                                    rewards.potionClaimed = true;
+                                    SaveManager::SaveContinueRun(run);
+                                    PlayRandomEffect(audio, potionDropPool, L"sfx_reward_potion", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                }
+                            }
+                            rewardButtonY += 5;
+                        }
+
+                        for (size_t relicIndex = 0; relicIndex < rewards.relicRewards.size(); ++relicIndex) {
+                            const bool claimed = (relicIndex < rewards.relicClaimed.size()) && (rewards.relicClaimed[relicIndex] != 0);
+                            if (claimed) {
+                                continue;
+                            }
+
+                            ButtonUI btnRelic(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, rewards.relicRewards[relicIndex].name, COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnRelic.Update(input);
+                                UpdateButtonAudio(btnRelic, "reward_relic_" + to_string(relicIndex), audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            btnRelic.Render(screen);
+                            if (btnRelic.IsHovered()) {
+                                showTooltipAtMouse(BuildRelicTooltipLines(rewards.relicRewards[relicIndex]));
+                            }
+                            if (btnRelic.IsClicked()) {
+                                run.relics.push_back(rewards.relicRewards[relicIndex]);
+                                if (relicIndex >= rewards.relicClaimed.size()) {
+                                    rewards.relicClaimed.resize(relicIndex + 1, 0);
+                                }
+                                rewards.relicClaimed[relicIndex] = 1;
+                                SaveManager::SaveContinueRun(run);
+                                PlayRandomEffect(audio, relicDropPool, L"sfx_reward_relic", audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            rewardButtonY += 5;
+                        }
+
+                        if (rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
+                            ButtonUI btnCard(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, u8"덱에 카드를 추가", COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnCard.Update(input);
+                                UpdateButtonAudio(btnCard, "reward_card_open", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            btnCard.Render(screen);
+                            if (btnCard.IsClicked()) {
+                                rewards.cardSelectionOpen = true;
+                                PlayRandomEffect(audio, parchmentPool, L"sfx_reward_card_open", audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            rewardButtonY += 5;
+                        }
+
+                        RenderWrappedText(screen, rewardRect.x + 4, rewardRect.y + rewardRect.height - 9, rewardRect.width - 8, rewards.message, COLOR_WHITE);
+                        ButtonUI btnComplete(rewardRect.x + rewardRect.width / 2 - 10, rewardRect.y + rewardRect.height - 4, 20, 3, continueLabel, COLOR_WHITE, COLOR_YELLOW);
+                        if (run.overlay == RunOverlayType::None) {
+                            btnComplete.Update(input);
+                            UpdateButtonAudio(btnComplete, "reward_complete", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                        }
+                        btnComplete.Render(screen);
+                        if (btnComplete.IsClicked()) {
+                            continueRequested = true;
+                        }
+                    }
+
+                    return continueRequested;
+                };
 
                 if (run.currentNodeId < 0) {
                     roomTitle = u8"다음 노드를 선택하세요";
@@ -1938,7 +2534,12 @@ int main() {
                     }
                 }
 
-                const bool showRoomFrame = (run.currentNodeId < 0) || !IsBattleNodeType(run.currentRoomType);
+                const bool showRoomFrame =
+                    (run.currentNodeId < 0) ||
+                    (!IsBattleNodeType(run.currentRoomType) &&
+                        run.currentRoomType != RunNodeType::Shop &&
+                        run.currentRoomType != RunNodeType::Rest &&
+                        run.currentRoomType != RunNodeType::Treasure);
                 if (showRoomFrame) {
                     RenderFrameBox(screen, roomPanel, COLOR_WHITE);
                     RenderPanelTitle(screen, roomPanel, roomTitle, COLOR_YELLOW);
@@ -1991,7 +2592,7 @@ int main() {
 
                         auto resolveBattleVictory = [&]() {
                             applyBurningBlood();
-                            audio.PlayEffect(L"battle_victory.wav", L"sfx_victory");
+                            PlayFixedEffect(audio, L"sfx\\STS_BossVictoryStinger_1_v3_SFX.ogg", L"sfx_victory", audioAliasCounter, settings.effectsEnabled);
 
                             if (run.currentRoomType == RunNodeType::Boss) {
                                 run.currentRoomSummaryTitle = u8"승리";
@@ -2341,23 +2942,24 @@ int main() {
 
                             bool escapeRequested = false;
                             for (size_t potionIndex = 0; potionIndex < potionButtons.size() && potionIndex < run.potions.size(); ++potionIndex) {
+                                UpdateRectHoverAudio(potionButtons[potionIndex].IsHovered(), "combat_potion_" + to_string(potionIndex), audio, potionUsePool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                                 potionButtons[potionIndex].Render(screen);
                                 if (potionButtons[potionIndex].IsClicked()) {
                                     const PotionData potion = run.potions[potionIndex];
                                     if (potion.name == u8"회복 포션") {
                                         run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + 12);
-                                        audio.PlayEffect(L"potion_use.wav", L"sfx_potion");
+                                        PlayRandomEffect(audio, potionUsePool, L"sfx_potion_use", audioRng, audioAliasCounter, settings.effectsEnabled);
                                         run.potions.erase(run.potions.begin() + static_cast<vector<PotionData>::difference_type>(potionIndex));
                                         break;
                                     }
                                     if (potion.name == u8"에너지 포션") {
                                         combatSystem->AddEnergy(2);
-                                        audio.PlayEffect(L"potion_use.wav", L"sfx_potion");
+                                        PlayRandomEffect(audio, potionUsePool, L"sfx_potion_use", audioRng, audioAliasCounter, settings.effectsEnabled);
                                         run.potions.erase(run.potions.begin() + static_cast<vector<PotionData>::difference_type>(potionIndex));
                                         break;
                                     }
                                     if (potion.name == u8"연막 포션" && run.currentRoomType != RunNodeType::Boss) {
-                                        audio.PlayEffect(L"battle_escape.wav", L"sfx_escape");
+                                        PlayRandomEffect(audio, potionUsePool, L"sfx_potion_use", audioRng, audioAliasCounter, settings.effectsEnabled);
                                         run.potions.erase(run.potions.begin() + static_cast<vector<PotionData>::difference_type>(potionIndex));
                                         escapeRequested = true;
                                         break;
@@ -2368,10 +2970,10 @@ int main() {
                             if (drawPileHovered && input.IsLeftClickDown()) {
                                 const CombatActionResult drawResult = combatSystem->TryManualDrawFromPile();
                                 if (drawResult.success) {
-                                    audio.PlayEffect(L"card_draw.wav", L"sfx_draw");
+                                    PlayFixedEffect(audio, L"card_pick_sfx.wav", L"sfx_draw", audioAliasCounter, settings.effectsEnabled);
                                 }
                                 else {
-                                    audio.PlayEffect(L"energy_fail.wav", L"sfx_energy_fail");
+                                    PlayRandomEffect(audio, cardRejectPool, L"sfx_draw_reject", audioRng, audioAliasCounter, settings.effectsEnabled);
                                 }
                             }
 
@@ -2386,10 +2988,13 @@ int main() {
                                         if (enemyEntityUi && actionResult.enemyHit) {
                                             enemyEntityUi->TriggerHitAnimation();
                                         }
-                                        audio.PlayEffect(L"card_discard.wav", L"sfx_discard");
+                                        PlayRandomEffect(audio, cardRejectPool, L"sfx_discard", audioRng, audioAliasCounter, settings.effectsEnabled);
                                     }
                                 }
                                 else if (dropTarget == CombatDropTarget::Enemy || dropTarget == CombatDropTarget::Player || IsGroundUsableCard(hand[static_cast<size_t>(draggedHandIndex)])) {
+                                    const CardData playedCard = hand[static_cast<size_t>(draggedHandIndex)];
+                                    const EntityData playerBeforeAction = run.player;
+                                    const EntityData enemyBeforeAction = run.battleRoom.enemy;
                                     CombatDropTarget actionTarget = dropTarget;
                                     if (actionTarget == CombatDropTarget::None && IsGroundUsableCard(hand[static_cast<size_t>(draggedHandIndex)])) {
                                         actionTarget = CombatDropTarget::None;
@@ -2409,15 +3014,54 @@ int main() {
                                         if (playerEntityUi && actionResult.playerHit) {
                                             playerEntityUi->TriggerHitAnimation();
                                         }
-                                        audio.PlayEffect(L"card_use.wav", L"sfx_card_use");
+                                        if (playedCard.type == CardType::Power) {
+                                            PlayRandomEffect(audio, buffPool, L"sfx_power_card", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        else if (playedCard.type == CardType::Attack) {
+                                            if (IsFireAttackCard(playedCard)) {
+                                                PlayRandomEffect(audio, { L"sfx\\SOTE_SFX_FireIgnite_1_v1.ogg", L"sfx\\SOTE_SFX_FireIgnite_2_v1.ogg" }, L"sfx_attack_fire", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                            }
+                                            else if (IsThunderCard(playedCard)) {
+                                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_ThunderclapCard_v1.ogg", L"sfx_attack_thunder", audioAliasCounter, settings.effectsEnabled);
+                                            }
+                                            else if (IsSpecialAttackCard(playedCard)) {
+                                                PlayRandomEffect(audio, { L"sfx\\SOTE_SFX_IronClad_Atk_RR1_v2.ogg", L"sfx\\SOTE_SFX_IronClad_Atk_RR2_v2.ogg", L"sfx\\SOTE_SFX_IronClad_Atk_RR3_v2.ogg" }, L"sfx_attack_special", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                            }
+                                            else if (IsHeavyAttackCard(playedCard)) {
+                                                PlayRandomEffect(audio, { L"sfx\\SOTE_SFX_HeavyAtk_v2.ogg", L"sfx\\SOTE_SFX_HeavyBlunt_v2.ogg" }, L"sfx_attack_heavy", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                            }
+                                            else {
+                                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_FastBlunt_v2.ogg", L"sfx_attack_fast", audioAliasCounter, settings.effectsEnabled);
+                                            }
+                                        }
+                                        if (run.player.block > playerBeforeAction.block) {
+                                            PlayRandomEffect(audio, gainDefensePool, L"sfx_gain_block", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (run.player.strength > playerBeforeAction.strength) {
+                                            PlayFixedEffect(audio, L"sfx\\STS_SFX_Strength_v1.ogg", L"sfx_strength_up", audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (run.player.dexterity > playerBeforeAction.dexterity) {
+                                            PlayFixedEffect(audio, L"sfx\\STS_SFX_Dexterity_v2.ogg", L"sfx_dexterity_up", audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (run.player.vulnerable > playerBeforeAction.vulnerable ||
+                                            run.player.weak > playerBeforeAction.weak ||
+                                            run.player.poison > playerBeforeAction.poison ||
+                                            run.battleRoom.enemy.vulnerable > enemyBeforeAction.vulnerable ||
+                                            run.battleRoom.enemy.weak > enemyBeforeAction.weak ||
+                                            run.battleRoom.enemy.poison > enemyBeforeAction.poison) {
+                                            PlayRandomEffect(audio, debuffPool, L"sfx_debuff_apply", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (playedCard.exhausts) {
+                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_ExhaustCard.ogg", L"sfx_card_exhaust", audioAliasCounter, settings.effectsEnabled);
+                                        }
                                     }
-                                    else if (actionResult.message == "Not enough energy") {
-                                        audio.PlayEffect(L"energy_fail.wav", L"sfx_energy_fail");
+                                    else {
+                                        PlayRandomEffect(audio, cardRejectPool, L"sfx_card_reject", audioRng, audioAliasCounter, settings.effectsEnabled);
                                     }
                                 }
 
                                 if (!actionSucceeded && dropTarget == CombatDropTarget::DiscardPile) {
-                                    audio.PlayEffect(L"card_discard.wav", L"sfx_discard");
+                                    PlayRandomEffect(audio, cardRejectPool, L"sfx_discard", audioRng, audioAliasCounter, settings.effectsEnabled);
                                 }
 
                                 draggedHandIndex = -1;
@@ -2438,7 +3082,19 @@ int main() {
                                 playerEntityUi->TriggerHitAnimation();
                             }
                             if (frameResult.overdrawRejected) {
-                                audio.PlayEffect(L"energy_fail.wav", L"sfx_overdraw");
+                                PlayRandomEffect(audio, cardRejectPool, L"sfx_overdraw", audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            if (frameResult.playerAttackBlocked) {
+                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_BlockAtk_v2.ogg", L"sfx_player_blocked", audioAliasCounter, settings.effectsEnabled);
+                            }
+                            if (frameResult.playerBlockBroken) {
+                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_DefenseBreak_v2.ogg", L"sfx_player_block_break", audioAliasCounter, settings.effectsEnabled);
+                            }
+                            if (frameResult.enemyBlockGained > 0) {
+                                PlayRandomEffect(audio, gainDefensePool, L"sfx_enemy_block_gain", audioRng, audioAliasCounter, settings.effectsEnabled);
+                            }
+                            if (frameResult.enemyStrengthGained > 0) {
+                                PlayRandomEffect(audio, buffPool, L"sfx_enemy_buff", audioRng, audioAliasCounter, settings.effectsEnabled);
                             }
 
                             const WORD drawPileColor = drawPileHovered ? COLOR_YELLOW : COLOR_WHITE;
@@ -2594,7 +3250,8 @@ int main() {
                                     resolveBattleVictory();
                                 }
                                 else {
-                                    audio.PlayEffect(L"battle_defeat.wav", L"sfx_defeat");
+                                    PlayFixedEffect(audio, L"sfx\\STS_DeathStinger_v4_SFX.ogg", L"sfx_defeat", audioAliasCounter, settings.effectsEnabled);
+                                    PlayRandomEffect(audio, deathMusicPool, L"bgm_defeat_stinger", audioRng, audioAliasCounter, settings.effectsEnabled);
                                     resolveBattleDefeat();
                                 }
                             }
@@ -2609,224 +3266,277 @@ int main() {
                             }
 
                             const Rect rewardRect = { roomPanel.x + roomPanel.width / 2 - 40, roomPanel.y + 10, 80, roomPanel.height - 18 };
-                            RenderFrameBox(screen, rewardRect, COLOR_YELLOW);
-                            RenderPanelTitle(screen, rewardRect, rewards.title, COLOR_YELLOW);
-
-                            if (rewards.cardSelectionOpen && rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
-                                const int cardTop = rewardRect.y + 5;
-                                const int cardSpacing = 24;
-                                for (size_t choiceIndex = 0; choiceIndex < rewards.cardChoices.size(); ++choiceIndex) {
-                                    Rect cardRect = { rewardRect.x + 4 + static_cast<int>(choiceIndex) * cardSpacing, cardTop, 22, 14 };
-                                    RenderFrameBox(screen, cardRect, cardRect.Contains(mouseX, mouseY) ? COLOR_YELLOW : COLOR_WHITE);
-                                    screen.DrawString(cardRect.x + 2, cardRect.y + 1, rewards.cardChoices[choiceIndex].name, COLOR_WHITE);
-                                    screen.DrawString(cardRect.x + 2, cardRect.y + 2, string(u8"코스트 ") + to_string(rewards.cardChoices[choiceIndex].cost), COLOR_YELLOW);
-                                    RenderWrappedText(screen, cardRect.x + 2, cardRect.y + 4, cardRect.width - 4, rewards.cardChoices[choiceIndex].description, COLOR_WHITE);
-
-                                    if (cardRect.Contains(mouseX, mouseY) && input.IsLeftClickDown() && run.overlay == RunOverlayType::None) {
-                                        run.deck.push_back(rewards.cardChoices[choiceIndex]);
-                                        rewards.cardRewardClaimed = true;
-                                        rewards.cardSelectionOpen = false;
-                                        rewards.cardChoices.clear();
-                                        SaveManager::SaveContinueRun(run);
-                                        audio.PlayEffect(L"card_pick_sfx.wav", L"sfx_card_pick");
-                                        break;
-                                    }
-                                }
-
-                                ButtonUI btnSkip(rewardRect.x + rewardRect.width / 2 - 8, rewardRect.y + rewardRect.height - 4, 16, 3, u8"넘기기", COLOR_WHITE, COLOR_YELLOW);
-                                if (run.overlay == RunOverlayType::None) {
-                                    btnSkip.Update(input);
-                                }
-                                btnSkip.Render(screen);
-                                if (btnSkip.IsClicked()) {
-                                    rewards.cardSelectionOpen = false;
-                                }
-                            }
-                            else {
-                                int rewardButtonY = rewardRect.y + 5;
-
-                                if (rewards.goldAvailable && !rewards.goldClaimed) {
-                                    ButtonUI btnGold(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, to_string(rewards.goldAmount) + u8" 골드", COLOR_WHITE, COLOR_YELLOW);
-                                    if (run.overlay == RunOverlayType::None) {
-                                        btnGold.Update(input);
-                                    }
-                                    btnGold.Render(screen);
-                                    if (btnGold.IsClicked()) {
-                                        run.gold += rewards.goldAmount;
-                                        rewards.goldClaimed = true;
-                                        SaveManager::SaveContinueRun(run);
-                                    }
-                                    rewardButtonY += 5;
-                                }
-
-                                if (rewards.potionAvailable && !rewards.potionClaimed) {
-                                    ButtonUI btnPotion(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, rewards.potion.name, COLOR_WHITE, COLOR_YELLOW);
-                                    if (run.overlay == RunOverlayType::None) {
-                                        btnPotion.Update(input);
-                                    }
-                                    btnPotion.Render(screen);
-                                    screen.DrawString(rewardRect.x + 6, rewardButtonY + 1, BuildPotionActionText(rewards.potion), FOREGROUND_INTENSITY);
-                                    if (btnPotion.IsClicked()) {
-                                        if (HasPotionSlot(run)) {
-                                            run.potions.push_back(rewards.potion);
-                                            rewards.potionClaimed = true;
-                                            SaveManager::SaveContinueRun(run);
-                                        }
-                                    }
-                                    rewardButtonY += 5;
-                                }
-
-                                if (rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
-                                    ButtonUI btnCard(rewardRect.x + 4, rewardButtonY, rewardRect.width - 8, 4, u8"덱에 카드를 추가", COLOR_WHITE, COLOR_YELLOW);
-                                    if (run.overlay == RunOverlayType::None) {
-                                        btnCard.Update(input);
-                                    }
-                                    btnCard.Render(screen);
-                                    if (btnCard.IsClicked()) {
-                                        rewards.cardSelectionOpen = true;
-                                    }
-                                    rewardButtonY += 5;
-                                }
-
-                                RenderWrappedText(screen, rewardRect.x + 4, rewardRect.y + rewardRect.height - 9, rewardRect.width - 8, rewards.message, COLOR_WHITE);
-                                ButtonUI btnSkipRewards(rewardRect.x + rewardRect.width / 2 - 10, rewardRect.y + rewardRect.height - 4, 20, 3, u8"보상 넘기기", COLOR_WHITE, COLOR_YELLOW);
-                                if (run.overlay == RunOverlayType::None) {
-                                    btnSkipRewards.Update(input);
-                                }
-                                btnSkipRewards.Render(screen);
-                                if (btnSkipRewards.IsClicked()) {
-                                    run.currentRoomSummaryTitle = rewards.title;
-                                    run.currentRoomSummaryText = rewards.message;
-                                    queueMapReturn();
-                                }
+                            if (renderRewardPanel(rewards, rewardRect, u8"보상 넘기기")) {
+                                run.currentRoomSummaryTitle = rewards.title;
+                                run.currentRoomSummaryText = rewards.message;
+                                queueMapReturn();
                             }
                         }
                         break;
                     }
                     case RunNodeType::Shop:
                     {
-                        RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 20, roomPanel.width - 34, run.shopRoom.noticeText, COLOR_YELLOW);
+                        const std::vector<std::string>& playerShopArt = AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+                        const std::vector<std::string>& merchantArt = AsciiArtLibrary::Get(AsciiArtId::Merchant);
+                        const Rect playerClip = { 2, 8, 44, screen.GetHeight() - 10 };
+                        const Rect merchantClip = { roomPanel.x + roomPanel.width / 2 + 6, 8, screen.GetWidth() - (roomPanel.x + roomPanel.width / 2 + 10), screen.GetHeight() - 10 };
+                        const int playerCenterX = 19;
+                        const int playerBottomY = screen.GetHeight() - 6;
+                        const int merchantCenterX = roomPanel.x + roomPanel.width - 28;
+                        const int merchantBottomY = screen.GetHeight() - 7;
+                        const Rect merchantHitRect = { merchantCenterX - 22, merchantBottomY - 20, 42, 22 };
+                        const bool merchantHovered = (!run.shopRoom.uiOpen && run.overlay == RunOverlayType::None && merchantHitRect.Contains(mouseX, mouseY));
+                        RenderAnchoredArtClipped(screen, playerCenterX, playerBottomY, playerShopArt, COLOR_WHITE, playerClip);
+                        RenderAnchoredArtClipped(screen, merchantCenterX, merchantBottomY, merchantArt, merchantHovered ? COLOR_YELLOW : COLOR_WHITE, merchantClip);
 
-                        const int offerWidth = 26;
-                        const int offerHeight = 6;
-                        const int offerTop = roomPanel.y + 22;
-                        const int offerLeft = roomPanel.x + 28;
-
-                        for (size_t offerIndex = 0; offerIndex < run.shopRoom.offers.size(); ++offerIndex) {
-                            const int column = static_cast<int>(offerIndex % 3);
-                            const int row = static_cast<int>(offerIndex / 3);
-                            const Rect offerRect = { offerLeft + column * 28, offerTop + row * 7, offerWidth, offerHeight };
-                            ShopOfferState& offer = run.shopRoom.offers[offerIndex];
-                            const bool hovered = offerRect.Contains(mouseX, mouseY);
-                            const WORD frameColor = offer.sold ? FOREGROUND_INTENSITY : (hovered ? COLOR_YELLOW : COLOR_WHITE);
-
-                            RenderFrameBox(screen, offerRect, frameColor);
-                            screen.DrawString(offerRect.x + 2, offerRect.y + 1, offer.title, frameColor);
-                            screen.DrawString(offerRect.x + 2, offerRect.y + 2, string(u8"가격 ") + to_string(offer.price) + "G", COLOR_YELLOW);
-                            RenderWrappedText(screen, offerRect.x + 2, offerRect.y + 3, offerRect.width - 4, offer.sold ? u8"구매 완료" : offer.description, COLOR_WHITE);
-
-                            if (!offer.sold && hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
-                                if (run.gold < offer.price) {
-                                    run.shopRoom.noticeText = u8"골드가 부족합니다.";
-                                }
-                                else if (offer.type == ShopOfferType::Potion && !HasPotionSlot(run)) {
-                                    run.shopRoom.noticeText = u8"포션 칸이 가득 찼습니다.";
-                                }
-                                else {
-                                    run.gold -= offer.price;
-                                    offer.sold = true;
-                                    switch (offer.type) {
-                                    case ShopOfferType::Card:
-                                        run.deck.push_back(offer.card);
-                                        run.shopRoom.noticeText = offer.card.name + u8" 카드를 구매했습니다.";
-                                        break;
-                                    case ShopOfferType::Relic:
-                                        run.relics.push_back(offer.relic);
-                                        run.shopRoom.noticeText = offer.relic.name + u8" 유물을 구매했습니다.";
-                                        break;
-                                    case ShopOfferType::Potion:
-                                        run.potions.push_back(offer.potion);
-                                        run.shopRoom.noticeText = offer.potion.name + u8" 포션을 구매했습니다.";
-                                        break;
-                                    default:
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        ButtonUI btnRemove(roomPanel.x + 28, roomPanel.y + roomPanel.height - 5, 20, 3, u8"카드 제거", COLOR_WHITE, COLOR_YELLOW);
-                        ButtonUI btnExit(roomPanel.x + 52, roomPanel.y + roomPanel.height - 5, 20, 3, u8"상점을 나간다", COLOR_WHITE, COLOR_YELLOW);
-                        if (run.overlay == RunOverlayType::None) {
-                            btnRemove.Update(input);
-                            btnExit.Update(input);
-                        }
-                        btnRemove.Render(screen);
-                        btnExit.Render(screen);
-
-                        screen.DrawString(roomPanel.x + 28, roomPanel.y + roomPanel.height - 7, string(u8"제거 비용 ") + to_string(run.shopRoom.removalPrice) + "G", FOREGROUND_INTENSITY);
-                        if (btnRemove.IsClicked()) {
-                            if (run.shopRoom.removalUsed) {
-                                run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
+                        static const vector<string> kMerchantIdleLines = {
+                            u8"뭘 살 텐가?",
+                            u8"좋은 물건이 있지.",
+                            u8"천천히 둘러봐.",
+                            u8"흥정은 안 받는다."
+                        };
+                        static const vector<string> kMerchantOpenLines = {
+                            u8"필요한 게 있나?",
+                            u8"신중히 골라라.",
+                            u8"오늘은 장사가 잘 되는군.",
+                            u8"카드 제거도 가능하다."
+                        };
+                        const vector<string>& chatterLines = run.shopRoom.uiOpen ? kMerchantOpenLines : kMerchantIdleLines;
+                        run.shopRoom.chatterTimerSec += deltaTimeSec;
+                        if (!chatterLines.empty() && run.shopRoom.chatterTimerSec >= 4.5f) {
+                            run.shopRoom.chatterTimerSec = 0.0f;
+                            run.shopRoom.chatterIndex = (run.shopRoom.chatterIndex + 1) % static_cast<int>(chatterLines.size());
+                            if (run.shopRoom.uiOpen) {
+                                PlayRandomEffect(audio, merchantOpenVoicePool, L"vo_merchant_open_idle", audioRng, audioAliasCounter, settings.effectsEnabled);
                             }
                             else {
-                                run.shopRoom.removeMode = !run.shopRoom.removeMode;
-                                run.shopRoom.noticeText = run.shopRoom.removeMode
-                                    ? u8"제거할 카드를 하나 선택하세요."
-                                    : u8"카드 제거 모드를 종료했습니다.";
+                                PlayRandomEffect(audio, merchantIdleVoicePool, L"vo_merchant_idle", audioRng, audioAliasCounter, settings.effectsEnabled);
                             }
                         }
-                        if (btnExit.IsClicked()) {
-                            run.currentRoomSummaryTitle = u8"상점";
-                            run.currentRoomSummaryText = run.shopRoom.noticeText.empty() ? u8"상점 정리를 마치고 다음 노드로 이동할 수 있습니다." : run.shopRoom.noticeText;
-                            ResolveCurrentNode(run, RunNodeResultType::Resolved);
-                            queueMapReturn();
+                        const string chatterText = chatterLines.empty() ? u8"..." : chatterLines[static_cast<size_t>(run.shopRoom.chatterIndex % static_cast<int>(chatterLines.size()))];
+
+                        if (!run.shopRoom.uiOpen) {
+                            RenderWrappedText(screen, roomPanel.x + 4, 8, 40, run.shopRoom.noticeText, COLOR_YELLOW);
+                            const Rect bubbleRect = { merchantCenterX - 44, merchantBottomY - 22, 26, 5 };
+                            RenderSpeechBubble(screen, bubbleRect, chatterText, COLOR_WHITE, SpeechTailStyle::BottomRight);
+                            ButtonUI btnLeave(roomPanel.x + 2, screen.GetHeight() - 6, 16, 3, u8"떠나기", COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnLeave.Update(input);
+                            }
+                            UpdateButtonAudio(btnLeave, "shop_leave_scene", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            btnLeave.Render(screen);
+
+                            if (run.overlay == RunOverlayType::None && merchantHitRect.Contains(mouseX, mouseY) && input.IsLeftClickDown()) {
+                                run.shopRoom.uiOpen = true;
+                                run.shopRoom.noticeText = u8"원하는 물건을 눌러 구매하십시오.";
+                                run.shopRoom.chatterTimerSec = 0.0f;
+                            }
+                            if (btnLeave.IsClicked()) {
+                                run.currentRoomSummaryTitle = u8"상점";
+                                run.currentRoomSummaryText = u8"상점 구역을 지나 다음 노드로 이동할 수 있습니다.";
+                                ResolveCurrentNode(run, RunNodeResultType::Resolved);
+                                queueMapReturn();
+                            }
                         }
+                        else {
+                            const Rect shopRect = { 10, 8, screen.GetWidth() - 20, screen.GetHeight() - 14 };
+                            RenderFrameBox(screen, shopRect, COLOR_WHITE);
+                            RenderPanelTitle(screen, shopRect, u8"상점", COLOR_YELLOW);
+                            RenderWrappedText(screen, shopRect.x + 3, shopRect.y + 2, shopRect.width - 6, run.shopRoom.noticeText, COLOR_YELLOW);
 
-                        if (run.shopRoom.removeMode) {
-                            const Rect deckRect = { roomPanel.x + roomPanel.width - 38, roomPanel.y + 20, 32, roomPanel.height - 28 };
-                            RenderFrameBox(screen, deckRect, COLOR_YELLOW);
-                            RenderPanelTitle(screen, deckRect, u8"제거할 카드", COLOR_YELLOW);
-
-                            for (size_t cardIndex = 0; cardIndex < run.deck.size() && cardIndex < static_cast<size_t>(deckRect.height - 4); ++cardIndex) {
-                                const Rect rowRect = { deckRect.x + 2, deckRect.y + 3 + static_cast<int>(cardIndex), deckRect.width - 4, 1 };
-                                const bool hovered = rowRect.Contains(mouseX, mouseY);
-                                screen.DrawString(rowRect.x, rowRect.y, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCardSummary(run.deck[cardIndex])), rowRect.width, TextLayout::HorizontalAlign::Left), hovered ? COLOR_YELLOW : COLOR_WHITE);
-
-                                if (hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
-                                    if (run.shopRoom.removalUsed) {
-                                        run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
-                                    }
-                                    else if (run.gold < run.shopRoom.removalPrice) {
-                                        run.shopRoom.noticeText = u8"카드 제거 비용이 부족합니다.";
-                                    }
-                                    else if (run.deck.size() <= 1) {
-                                        run.shopRoom.noticeText = u8"덱이 비어버리지 않도록 최소 1장은 남겨야 합니다.";
-                                    }
-                                    else {
-                                        const string removedName = run.deck[cardIndex].name;
-                                        run.gold -= run.shopRoom.removalPrice;
-                                        run.deck.erase(run.deck.begin() + static_cast<vector<CardData>::difference_type>(cardIndex));
-                                        run.shopRoom.removalUsed = true;
-                                        run.shopRoom.removeMode = false;
-                                        run.shopRoom.noticeText = removedName + u8" 카드를 제거했습니다.";
-                                    }
-                                    break;
+                            vector<ShopOfferState*> cardOffers;
+                            vector<ShopOfferState*> relicOffers;
+                            vector<ShopOfferState*> potionOffers;
+                            for (ShopOfferState& offer : run.shopRoom.offers) {
+                                switch (offer.type) {
+                                case ShopOfferType::Card: cardOffers.push_back(&offer); break;
+                                case ShopOfferType::Relic: relicOffers.push_back(&offer); break;
+                                case ShopOfferType::Potion: potionOffers.push_back(&offer); break;
+                                default: break;
                                 }
                             }
+
+                            const auto tryBuyOffer = [&](ShopOfferState& offer) {
+                                if (offer.sold) {
+                                    return;
+                                }
+                                if (run.gold < offer.price) {
+                                    run.shopRoom.noticeText = u8"골드가 부족합니다.";
+                                    PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_no_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                    return;
+                                }
+                                if (offer.type == ShopOfferType::Potion && !HasPotionSlot(run)) {
+                                    run.shopRoom.noticeText = u8"포션 칸이 가득 찼습니다.";
+                                    PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_no_slot", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                    return;
+                                }
+
+                                run.gold -= offer.price;
+                                offer.sold = true;
+                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_CashRegister.ogg", L"sfx_shop_purchase", audioAliasCounter, settings.effectsEnabled);
+                                PlayRandomEffect(audio, merchantBuyVoicePool, L"vo_merchant_buy", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                switch (offer.type) {
+                                case ShopOfferType::Card:
+                                    run.deck.push_back(offer.card);
+                                    run.shopRoom.noticeText = offer.card.name + u8" 카드를 구매했습니다.";
+                                    break;
+                                case ShopOfferType::Relic:
+                                    run.relics.push_back(offer.relic);
+                                    run.shopRoom.noticeText = offer.relic.name + u8" 유물을 구매했습니다.";
+                                    PlayRandomEffect(audio, relicDropPool, L"sfx_shop_relic", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                    break;
+                                case ShopOfferType::Potion:
+                                    run.potions.push_back(offer.potion);
+                                    run.shopRoom.noticeText = offer.potion.name + u8" 포션을 구매했습니다.";
+                                    PlayRandomEffect(audio, potionDropPool, L"sfx_shop_potion", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                    break;
+                                default:
+                                    break;
+                                }
+                            };
+
+                            const auto renderOffer = [&](ShopOfferState& offer, const Rect& offerRect) {
+                                const bool hovered = offerRect.Contains(mouseX, mouseY);
+                                if (offer.type == ShopOfferType::Card) {
+                                    RenderCompactCardOffer(screen, offerRect, offer.card, offer.price, offer.sold, hovered);
+                                }
+                                else {
+                                    const WORD frameColor = offer.sold ? FOREGROUND_INTENSITY : (hovered ? COLOR_YELLOW : COLOR_WHITE);
+                                    RenderFrameBox(screen, offerRect, frameColor);
+                                    screen.DrawString(offerRect.x + 2, offerRect.y + 1, offer.title, frameColor);
+                                    screen.DrawString(offerRect.x + 2, offerRect.y + 2, string(u8"가격 ") + to_string(offer.price) + "G", COLOR_YELLOW);
+                                    RenderWrappedText(screen, offerRect.x + 2, offerRect.y + 3, offerRect.width - 4, offer.sold ? u8"구매 완료" : offer.description, COLOR_WHITE);
+                                    if (offer.type == ShopOfferType::Relic && hovered) {
+                                        showTooltipAtMouse(BuildRelicTooltipLines(offer.relic));
+                                    }
+                                }
+                                if (!offer.sold && hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
+                                    tryBuyOffer(offer);
+                                }
+                            };
+
+                            const int topCardWidth = 22;
+                            const int topCardHeight = 11;
+                            const int topCardGap = 2;
+                            const int topCardStartX = shopRect.x + 4;
+                            const int topCardTop = shopRect.y + 5;
+                            for (int index = 0; index < 5 && index < static_cast<int>(cardOffers.size()); ++index) {
+                                const Rect offerRect = { topCardStartX + index * (topCardWidth + topCardGap), topCardTop, topCardWidth, topCardHeight };
+                                renderOffer(*cardOffers[static_cast<size_t>(index)], offerRect);
+                            }
+
+                            const int lowerCardTop = shopRect.y + 18;
+                            for (int index = 5; index < 7 && index < static_cast<int>(cardOffers.size()); ++index) {
+                                const Rect offerRect = { shopRect.x + 6 + (index - 5) * 26, lowerCardTop, 24, 11 };
+                                renderOffer(*cardOffers[static_cast<size_t>(index)], offerRect);
+                            }
+
+                            for (int index = 0; index < static_cast<int>(potionOffers.size()); ++index) {
+                                const Rect offerRect = { shopRect.x + shopRect.width / 2 + 2 + index * 16, shopRect.y + shopRect.height - 11, 14, 5 };
+                                renderOffer(*potionOffers[static_cast<size_t>(index)], offerRect);
+                            }
+
+                            for (int index = 0; index < static_cast<int>(relicOffers.size()); ++index) {
+                                const Rect offerRect = { shopRect.x + shopRect.width / 2 + 2 + index * 16, shopRect.y + shopRect.height - 17, 14, 5 };
+                                renderOffer(*relicOffers[static_cast<size_t>(index)], offerRect);
+                            }
+
+                            const Rect removalRect = { shopRect.x + shopRect.width - 24, shopRect.y + shopRect.height - 15, 20, 10 };
+                            const bool removalHovered = removalRect.Contains(mouseX, mouseY);
+                            RenderFrameBox(screen, removalRect, removalHovered ? COLOR_YELLOW : COLOR_WHITE);
+                            RenderPanelTitle(screen, removalRect, u8"카드 제거", COLOR_YELLOW);
+                            screen.DrawString(removalRect.x + 3, removalRect.y + 4, u8"서비스!", COLOR_WHITE);
+                            screen.DrawString(removalRect.x + 4, removalRect.y + 6, to_string(run.shopRoom.removalPrice) + "G", COLOR_YELLOW);
+                            screen.DrawString(removalRect.x + 2, removalRect.y + 7, run.shopRoom.removalUsed ? u8"사용 완료" : u8"클릭하여 진행", FOREGROUND_INTENSITY);
+                            if (removalHovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
+                                if (run.shopRoom.removalUsed) {
+                                    run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
+                                }
+                                else {
+                                    run.shopRoom.removeMode = !run.shopRoom.removeMode;
+                                    run.shopRoom.noticeText = run.shopRoom.removeMode ? u8"제거할 카드를 하나 선택하세요." : u8"카드 제거 모드를 종료했습니다.";
+                                }
+                            }
+
+                            ButtonUI btnExit(shopRect.x + 3, shopRect.y + shopRect.height - 4, 16, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnExit.Update(input);
+                            }
+                            UpdateButtonAudio(btnExit, "shop_ui_back", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            btnExit.Render(screen);
+                            if (btnExit.IsClicked()) {
+                                run.shopRoom.uiOpen = false;
+                                run.shopRoom.removeMode = false;
+                                run.shopRoom.noticeText = u8"상인을 눌러 물건을 살펴보십시오.";
+                            }
+
+                            if (run.shopRoom.removeMode) {
+                                const Rect deckRect = { screen.GetCenterX() - 24, screen.GetCenterY() - 10, 48, 18 };
+                                RenderFrameBox(screen, deckRect, COLOR_YELLOW);
+                                RenderPanelTitle(screen, deckRect, u8"제거할 카드", COLOR_YELLOW);
+
+                                for (size_t cardIndex = 0; cardIndex < run.deck.size() && cardIndex < static_cast<size_t>(deckRect.height - 4); ++cardIndex) {
+                                    const Rect rowRect = { deckRect.x + 2, deckRect.y + 3 + static_cast<int>(cardIndex), deckRect.width - 4, 1 };
+                                    const bool hovered = rowRect.Contains(mouseX, mouseY);
+                                    screen.DrawString(rowRect.x, rowRect.y, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCardSummary(run.deck[cardIndex])), rowRect.width, TextLayout::HorizontalAlign::Left), hovered ? COLOR_YELLOW : COLOR_WHITE);
+
+                                    if (hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
+                                        if (run.shopRoom.removalUsed) {
+                                            run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
+                                        }
+                                        else if (run.gold < run.shopRoom.removalPrice) {
+                                            run.shopRoom.noticeText = u8"카드 제거 비용이 부족합니다.";
+                                            PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_remove_no_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        else if (run.deck.size() <= 1) {
+                                            run.shopRoom.noticeText = u8"덱이 비어버리지 않도록 최소 1장은 남겨야 합니다.";
+                                        }
+                                        else {
+                                            const string removedName = run.deck[cardIndex].name;
+                                            run.gold -= run.shopRoom.removalPrice;
+                                            run.deck.erase(run.deck.begin() + static_cast<vector<CardData>::difference_type>(cardIndex));
+                                            run.shopRoom.removalUsed = true;
+                                            run.shopRoom.removeMode = false;
+                                            run.shopRoom.noticeText = removedName + u8" 카드를 제거했습니다.";
+                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_ExhaustCard.ogg", L"sfx_shop_remove_exhaust", audioAliasCounter, settings.effectsEnabled);
+                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_CashRegister.ogg", L"sfx_shop_remove_pay", audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+
+                            const Rect bubbleRect = { shopRect.x + shopRect.width - 38, 3, 30, 5 };
+                            RenderSpeechBubble(screen, bubbleRect, chatterText, COLOR_WHITE, SpeechTailStyle::TopRight);
                         }
                         break;
                     }
                     case RunNodeType::Rest:
                     {
-                        RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 20, roomPanel.width - 34, run.restRoom.noticeText, COLOR_YELLOW);
+                        const std::vector<std::string>& playerRestArt = AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+                        const Rect playerClip = { 2, 8, 44, screen.GetHeight() - 10 };
+                        const Rect fireClip = { screen.GetCenterX() - 8, 10, 60, screen.GetHeight() - 10 };
+                        static float campfireAnimTimerSec = 0.0f;
+                        campfireAnimTimerSec += deltaTimeSec;
+                        const std::vector<std::vector<std::string>>& fireFrames = GetCampfireAnimFrames();
+                        const int fireFrameIndex = static_cast<int>(campfireAnimTimerSec / 0.18f) % static_cast<int>(fireFrames.size());
+                        RenderAnchoredArtClipped(screen, 18, screen.GetHeight() - 6, playerRestArt, COLOR_WHITE, playerClip);
+                        RenderAnchoredArtClipped(screen, screen.GetCenterX() + 18, screen.GetHeight() - 6, fireFrames[static_cast<size_t>(fireFrameIndex)], COLOR_RED | COLOR_YELLOW, fireClip);
+
+                        screen.DrawString(
+                            TextLayout::ComputeAlignedXUtf8(0, screen.GetWidth(), u8"쉴 때가 됐군.", TextLayout::HorizontalAlign::Center),
+                            8,
+                            u8"쉴 때가 됐군.",
+                            COLOR_WHITE);
+                        RenderWrappedText(screen, screen.GetCenterX() - 22, 11, 44, run.restRoom.noticeText, FOREGROUND_INTENSITY);
 
                         if (run.restRoom.resultReady) {
-                            RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 24, roomPanel.width - 34, run.restRoom.resultText, COLOR_WHITE);
-                            ButtonUI btnContinue(roomPanel.x + 28, roomPanel.y + roomPanel.height - 5, 18, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
+                            RenderWrappedText(screen, screen.GetCenterX() - 20, 15, 40, run.restRoom.resultText, COLOR_WHITE);
+                            ButtonUI btnContinue(screen.GetCenterX() - 10, 24, 20, 4, u8"계속", COLOR_WHITE, COLOR_YELLOW);
                             if (run.overlay == RunOverlayType::None) {
                                 btnContinue.Update(input);
                             }
+                            UpdateButtonAudio(btnContinue, "rest_continue", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                             btnContinue.Render(screen);
                             if (btnContinue.IsClicked()) {
                                 run.currentRoomSummaryTitle = u8"휴식";
@@ -2836,95 +3546,69 @@ int main() {
                             }
                         }
                         else {
-                            ButtonUI btnRest(roomPanel.x + 28, roomPanel.y + 24, 18, 3, u8"휴식", COLOR_WHITE, COLOR_YELLOW);
-                            ButtonUI btnSmith(roomPanel.x + 50, roomPanel.y + 24, 18, 3, u8"강화", COLOR_WHITE, COLOR_YELLOW);
-                            ButtonUI btnLeave(roomPanel.x + 72, roomPanel.y + 24, 18, 3, u8"나가기", COLOR_WHITE, COLOR_YELLOW);
+                            ButtonUI btnRest(screen.GetCenterX() - 24, 14, 18, 4, u8"휴식", COLOR_WHITE, COLOR_YELLOW);
+                            ButtonUI btnSmith(screen.GetCenterX() + 6, 14, 18, 4, u8"제련", COLOR_WHITE, COLOR_YELLOW);
                             if (run.overlay == RunOverlayType::None) {
                                 btnRest.Update(input);
                                 btnSmith.Update(input);
-                                btnLeave.Update(input);
                             }
+                            UpdateButtonAudio(btnRest, "rest_heal", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            UpdateButtonAudio(btnSmith, "rest_smith", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                             btnRest.Render(screen);
                             btnSmith.Render(screen);
-                            btnLeave.Render(screen);
 
                             if (btnRest.IsClicked()) {
                                 const int healAmount = (std::max)(12, run.player.maxHp / 4);
                                 const int beforeHp = run.player.currentHp;
                                 run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + healAmount);
                                 run.restRoom.resultReady = true;
-                                run.restRoom.resultText = string(u8"모닥불 옆에서 숨을 고르며 체력을 ")
-                                    + to_string(run.player.currentHp - beforeHp) + u8" 회복했습니다.";
+                                run.restRoom.resultText = string(u8"모닥불 곁에서 체력을 ") + to_string(run.player.currentHp - beforeHp) + u8" 회복했습니다.";
+                                PlayRandomEffect(audio, sleepJinglePool, L"sfx_rest_heal", audioRng, audioAliasCounter, settings.effectsEnabled);
                             }
                             if (btnSmith.IsClicked()) {
-                                run.restRoom.noticeText = u8"카드 강화 목록과 실제 강화 효과는 다음 단계에서 연결합니다.";
-                            }
-                            if (btnLeave.IsClicked()) {
-                                run.currentRoomSummaryTitle = u8"휴식";
-                                run.currentRoomSummaryText = u8"휴식 지점을 정리하고 다음 노드로 이동할 수 있습니다.";
-                                ResolveCurrentNode(run, RunNodeResultType::Resolved);
-                                queueMapReturn();
+                                run.restRoom.resultReady = true;
+                                run.restRoom.resultText = u8"제련은 아직 구현되지 않았습니다.";
+                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_UpgradeCard_v1.ogg", L"sfx_rest_smith", audioAliasCounter, settings.effectsEnabled);
                             }
                         }
                         break;
                     }
                     case RunNodeType::Treasure:
                     {
-                        if (!run.treasureRoom.noticeText.empty()) {
-                            RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 20, roomPanel.width - 34, run.treasureRoom.noticeText, COLOR_YELLOW);
-                        }
+                        const std::vector<std::string>& playerTreasureArt = AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+                        const std::vector<std::string>& chestClosedArt = AsciiArtLibrary::Get(AsciiArtId::TreasureChestClosed);
+                        const std::vector<std::string>& chestOpenArt = AsciiArtLibrary::Get(AsciiArtId::TreasureChestOpen);
+                        const Rect playerClip = { 2, 8, 44, screen.GetHeight() - 10 };
+                        const Rect chestClip = { roomPanel.x + roomPanel.width / 2 + 8, 10, screen.GetWidth() - (roomPanel.x + roomPanel.width / 2 + 12), screen.GetHeight() - 12 };
+                        const int playerCenterX = 19;
+                        const int playerBottomY = screen.GetHeight() - 6;
+                        const int chestCenterX = roomPanel.x + roomPanel.width - 24;
+                        const int chestBottomY = screen.GetHeight() - 7;
+                        const Rect chestHitRect = { chestCenterX - 20, chestBottomY - 14, 34, 16 };
+                        RenderAnchoredArtClipped(screen, playerCenterX, playerBottomY, playerTreasureArt, COLOR_WHITE, playerClip);
+                        RenderAnchoredArtClipped(screen, chestCenterX, chestBottomY, run.treasureRoom.chestOpened ? chestOpenArt : chestClosedArt, COLOR_YELLOW, chestClip);
 
-                        if (run.treasureRoom.choiceCommitted) {
-                            RenderWrappedText(screen, roomPanel.x + 28, roomPanel.y + 24, roomPanel.width - 34, run.treasureRoom.resultText, COLOR_WHITE);
-                            ButtonUI btnContinue(roomPanel.x + 28, roomPanel.y + roomPanel.height - 5, 18, 3, u8"계속", COLOR_WHITE, COLOR_YELLOW);
-                            if (run.overlay == RunOverlayType::None) {
-                                btnContinue.Update(input);
-                            }
-                            btnContinue.Render(screen);
-                            if (btnContinue.IsClicked()) {
-                                run.currentRoomSummaryTitle = u8"보물";
-                                run.currentRoomSummaryText = run.treasureRoom.resultText;
-                                ResolveCurrentNode(run, RunNodeResultType::Resolved);
-                                queueMapReturn();
+                        screen.DrawString(
+                            TextLayout::ComputeAlignedXUtf8(0, screen.GetWidth(), u8"보물", TextLayout::HorizontalAlign::Center),
+                            8,
+                            u8"보물",
+                            COLOR_YELLOW);
+                        RenderWrappedText(screen, roomPanel.x + 4, 11, 42, run.treasureRoom.noticeText, COLOR_WHITE);
+
+                        if (!run.treasureRoom.chestOpened) {
+                            if (run.overlay == RunOverlayType::None && chestHitRect.Contains(mouseX, mouseY) && input.IsLeftClickDown()) {
+                                run.treasureRoom.chestOpened = true;
+                                run.treasureRoom.noticeText = u8"상자 안의 보상을 챙길 수 있습니다.";
+                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_ChestOpen_v2.ogg", L"sfx_treasure_open", audioAliasCounter, settings.effectsEnabled);
                             }
                         }
                         else {
-                            const int choiceWidth = 26;
-                            const int choiceHeight = 6;
-                            const int choiceLeft = roomPanel.x + 28;
-                            const int choiceTop = roomPanel.y + 22;
-                            for (size_t choiceIndex = 0; choiceIndex < run.treasureRoom.choices.size(); ++choiceIndex) {
-                                const int column = static_cast<int>(choiceIndex % 2);
-                                const int row = static_cast<int>(choiceIndex / 2);
-                                const Rect choiceRect = { choiceLeft + column * 30, choiceTop + row * 7, choiceWidth, choiceHeight };
-                                TreasureChoiceState& choice = run.treasureRoom.choices[choiceIndex];
-                                const bool hovered = choiceRect.Contains(mouseX, mouseY);
-                                RenderFrameBox(screen, choiceRect, hovered ? COLOR_YELLOW : COLOR_WHITE);
-                                screen.DrawString(choiceRect.x + 2, choiceRect.y + 1, choice.title, hovered ? COLOR_YELLOW : COLOR_WHITE);
-                                RenderWrappedText(screen, choiceRect.x + 2, choiceRect.y + 3, choiceRect.width - 4, choice.description, COLOR_WHITE);
-
-                                if (hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
-                                    if (choice.grantPotion && !HasPotionSlot(run)) {
-                                        run.treasureRoom.noticeText = u8"포션 칸이 가득 차서 이 보상은 받을 수 없습니다.";
-                                    }
-                                    else {
-                                        run.treasureRoom.noticeText.clear();
-                                        run.treasureRoom.choiceCommitted = true;
-                                        run.treasureRoom.selectedChoiceId = choice.id;
-                                        if (choice.goldReward > 0) {
-                                            run.gold += choice.goldReward;
-                                            run.treasureRoom.resultText = string(u8"금화 더미를 챙겨 골드 ") + to_string(choice.goldReward) + u8"을 획득했습니다.";
-                                        }
-                                        else if (choice.grantRelic) {
-                                            run.relics.push_back(choice.relic);
-                                            run.treasureRoom.resultText = choice.relic.name + u8" 유물을 획득했습니다.";
-                                        }
-                                        else if (choice.grantPotion) {
-                                            run.potions.push_back(choice.potion);
-                                            run.treasureRoom.resultText = choice.potion.name + u8" 포션을 획득했습니다.";
-                                        }
-                                    }
-                                }
+                            const Rect rewardRect = { roomPanel.x + roomPanel.width / 2 - 40, roomPanel.y + 10, 80, roomPanel.height - 18 };
+                            if (renderRewardPanel(run.treasureRoom.rewards, rewardRect, u8"계속")) {
+                                run.currentRoomSummaryTitle = u8"보물";
+                                run.currentRoomSummaryText = u8"상자 안의 전리품을 챙기고 다음 노드로 이동할 수 있습니다.";
+                                ResolveCurrentNode(run, RunNodeResultType::Resolved);
+                                queueMapReturn();
                             }
                         }
                         break;
@@ -3002,6 +3686,18 @@ int main() {
                                             run.deck.push_back(choice.card);
                                             run.eventRoom.resultText += "\n" + choice.card.name + u8" 카드를 덱에 추가했습니다.";
                                         }
+                                        if (choice.goldDelta != 0) {
+                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_Gold_v1.ogg", L"sfx_event_gold", audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (choice.hpDelta > 0) {
+                                            PlayRandomEffect(audio, healShortPool, L"sfx_event_heal", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (choice.grantRelic) {
+                                            PlayRandomEffect(audio, relicDropPool, L"sfx_event_relic", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
+                                        if (choice.grantPotion) {
+                                            PlayRandomEffect(audio, potionDropPool, L"sfx_event_potion", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        }
                                     }
                                 }
                             }
@@ -3026,6 +3722,7 @@ int main() {
                 ButtonUI btnReturnRoom(overlayRect.x + overlayRect.width - 20, overlayRect.y + overlayRect.height - 4, 16, 3, u8"돌아가기", COLOR_WHITE, COLOR_YELLOW);
                 if (run.currentNodeId >= 0) {
                     btnReturnRoom.Update(input);
+                    UpdateButtonAudio(btnReturnRoom, "map_return_room", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                     btnReturnRoom.Render(screen);
                     if (btnReturnRoom.IsClicked()) {
                         run.overlay = RunOverlayType::None;
@@ -3040,10 +3737,19 @@ int main() {
                 int hoveredNodeId = -1;
                 vector<string> tooltipLines;
                 if (mapRenderer.TryGetHoveredNodeId(mouseX, mouseY, hoveredNodeId) && mapRenderer.TryGetNodeTooltip(mouseX, mouseY, tooltipLines)) {
+                    if (hoveredNodeId >= 0 && hoveredNodeId != lastHoveredMapNodeId) {
+                        PlayRandomEffect(audio, mapHoverPool, L"sfx_map_hover", audioRng, audioAliasCounter, settings.effectsEnabled);
+                    }
+                    lastHoveredMapNodeId = hoveredNodeId;
                     showTooltipAtMouse(tooltipLines);
 
                     const bool canSelectNode = (run.currentNodeId < 0 || run.roomResolved) && CanEnterNode(run, hoveredNodeId);
                     if (canSelectNode && input.IsLeftClickDown()) {
+                        const RunNodeState* selectedNode = FindNodeById(run, hoveredNodeId);
+                        PlayRandomEffect(audio, mapSelectPool, L"sfx_map_select", audioRng, audioAliasCounter, settings.effectsEnabled);
+                        if (selectedNode != nullptr && IsBattleNodeType(selectedNode->type)) {
+                            PlayRandomEffect(audio, battleStartPool, L"sfx_map_battle_start", audioRng, audioAliasCounter, settings.effectsEnabled);
+                        }
                         EnterNode(run, hoveredNodeId);
                         SaveManager::SaveContinueRun(run);
                         tooltip.SetVisible(false);
@@ -3051,6 +3757,7 @@ int main() {
                     }
                 }
                 else {
+                    lastHoveredMapNodeId = -1;
                     tooltip.SetVisible(false);
                 }
             }
@@ -3101,6 +3808,10 @@ int main() {
                 btnBack.Update(input);
                 btnAbandon.Update(input);
                 btnSaveExit.Update(input);
+                UpdateButtonAudio(btnToggleDebug, "run_settings_debug", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnBack, "run_settings_back", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnAbandon, "run_settings_abandon", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnSaveExit, "run_settings_save_exit", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 btnToggleDebug.Render(screen);
                 btnBack.Render(screen);
                 btnAbandon.Render(screen);
@@ -3145,6 +3856,8 @@ int main() {
                 ButtonUI btnNo(popup.x + popup.width - 19, popup.y + popup.height - 4, 12, 3, u8"아니오", COLOR_WHITE, COLOR_YELLOW);
                 btnYes.Update(input);
                 btnNo.Update(input);
+                UpdateButtonAudio(btnYes, "run_confirm_yes", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                UpdateButtonAudio(btnNo, "run_confirm_no", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                 btnYes.Render(screen);
                 btnNo.Render(screen);
 

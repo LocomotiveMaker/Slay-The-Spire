@@ -16,7 +16,11 @@ enum class AsciiArtId {
     EnemyNormal,
     EnemyElite,
     EnemyBoss,
-    Neow
+    Neow,
+    Merchant,
+    TreasureChestClosed,
+    TreasureChestOpen,
+    Campfire
 };
 
 namespace AsciiArtLibrary {

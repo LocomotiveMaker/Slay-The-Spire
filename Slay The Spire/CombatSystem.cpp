@@ -613,6 +613,7 @@ void CombatSystem::ExecuteEnemyIntent(CombatFrameResult& result) {
 
     switch (currentIntent.type) {
     case EnemyIntentType::Attack: {
+        const int playerBlockBeforeHit = player->block;
         int rawDamage = ApplyOutgoingModifiers(*enemy, *player, currentIntent.value);
         if (overloadActive) {
             rawDamage *= 2;
@@ -621,6 +622,8 @@ void CombatSystem::ExecuteEnemyIntent(CombatFrameResult& result) {
         if (rawDamage > 0) {
             result.playerHit = true;
             result.damageToPlayer += hpDamage;
+            result.playerAttackBlocked = (playerBlockBeforeHit > 0 && hpDamage <= 0);
+            result.playerBlockBroken = (playerBlockBeforeHit > 0 && hpDamage > 0);
             if (poisonOnBeingHit > 0 && enemy != nullptr) {
                 enemy->poison += poisonOnBeingHit;
             }

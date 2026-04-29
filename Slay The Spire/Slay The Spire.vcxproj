@@ -100,7 +100,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I "$(ProjectDir)Assets\Audio\*.*" "$(OutDir)" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -121,7 +121,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I "$(ProjectDir)Assets\Audio\*.*" "$(OutDir)" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -138,7 +138,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I "$(ProjectDir)Assets\Audio\*.*" "$(OutDir)" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -160,7 +160,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I "$(ProjectDir)Assets\Audio\*.*" "$(OutDir)" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

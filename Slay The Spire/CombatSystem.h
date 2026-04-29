@@ -49,6 +49,8 @@ struct CombatFrameResult {
     bool playerHit = false;
     bool enemyHit = false;
     bool battleEnded = false;
+    bool playerAttackBlocked = false;
+    bool playerBlockBroken = false;
     int damageToPlayer = 0;
     int damageToEnemy = 0;
     int enemyBlockGained = 0;
