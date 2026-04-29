@@ -1,5 +1,6 @@
 // -----------------------------------------------------------------------------
 // @file       SaveManager.cpp
+// @brief      설정/세이브/기록 직렬화 구현부
 // -----------------------------------------------------------------------------
 #include "SaveManager.h"
 #include <algorithm>
@@ -52,6 +53,7 @@ std::filesystem::path GetStatsPath() {
     return SaveManager::GetSaveDirectory() / "stats.txt";
 }
 
+// 아래 Write/Read 계열은 텍스트 기반 세이브 포맷을 직접 직렬화한다.
 void WriteCard(std::ostream& out, const CardData& card) {
     out << "CARD "
         << card.id << ' '
@@ -506,6 +508,7 @@ RunStateData BuildSanitizedContinueRun(const RunStateData& source) {
 
 } // namespace
 
+// 여기부터는 외부에서 직접 호출하는 저장/불러오기 API다.
 std::filesystem::path SaveManager::GetProjectRoot() {
     return FindProjectRoot();
 }

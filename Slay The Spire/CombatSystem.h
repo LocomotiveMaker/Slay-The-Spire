@@ -1,6 +1,6 @@
 ﻿// -----------------------------------------------------------------------------
 // @file       CombatSystem.h
-// @brief      Real-time combat state and rule execution for the prototype.
+// @brief      프로토타입 실시간 전투 상태와 규칙 실행 인터페이스
 // -----------------------------------------------------------------------------
 #pragma once
 #include "CardLibrary.h"

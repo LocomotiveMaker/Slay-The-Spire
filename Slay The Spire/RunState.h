@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // @file       RunState.h
-// @brief      Run/session data, map generation, and record helpers.
+// @brief      런 데이터, 맵 생성, 기록 생성용 인터페이스
 // -----------------------------------------------------------------------------
 #pragma once
 #include "GameData.h"

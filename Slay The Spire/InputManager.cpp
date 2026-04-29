@@ -1,5 +1,6 @@
 ﻿#include "InputManager.h"
 
+// 이전 프레임 상태를 함께 기억해서 클릭/해제/홀드 입력을 분리한다.
 InputManager::InputManager()
     : mouseX(0),
     mouseY(0),

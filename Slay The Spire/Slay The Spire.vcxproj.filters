@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AsciiArtLibrary.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="main.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -71,6 +74,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AsciiArtLibrary.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="ScreenManager.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>

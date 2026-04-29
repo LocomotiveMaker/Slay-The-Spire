@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // @file       SaveManager.h
-// @brief      Save/load helpers for continue data, records, and settings.
+// @brief      이어하기, 기록, 설정 저장/불러오기 인터페이스
 // -----------------------------------------------------------------------------
 #pragma once
 #include "RunState.h"

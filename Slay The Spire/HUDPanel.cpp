@@ -1,6 +1,7 @@
 #include "HUDPanel.h"
 #include "TextLayout.h"
 
+// 상단 HUD는 값 자체보다도 폭이 흔들리지 않게 유지하는 쪽이 더 중요하다.
 HUDPanel::HUDPanel(int width, EntityData* pData, long long* gData, int* fData)
     : UIElement(0, 0, width, 4), playerRef(pData), goldRef(gData), floorRef(fData) {
 }

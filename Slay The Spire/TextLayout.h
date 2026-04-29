@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // @file       TextLayout.h
-// @brief      UTF-8 text measurement and wrapping helpers for console UI.
+// @brief      콘솔 UI용 UTF-8 텍스트 폭 계산 및 줄바꿈 도우미
 // -----------------------------------------------------------------------------
 #pragma once
 #include <string>

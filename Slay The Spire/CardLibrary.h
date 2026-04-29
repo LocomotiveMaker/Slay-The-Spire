@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // @file       CardLibrary.h
-// @brief      Shared card definitions, pools, and runtime text helpers.
+// @brief      카드 정의, 카드 풀, 동적 설명 문자열 생성 도우미
 // -----------------------------------------------------------------------------
 #pragma once
 #include "GameData.h"

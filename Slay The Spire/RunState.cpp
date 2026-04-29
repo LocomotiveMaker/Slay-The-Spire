@@ -1,5 +1,6 @@
 ﻿// -----------------------------------------------------------------------------
 // @file       RunState.cpp
+// @brief      런 생성, 방 상태 준비, 맵 생성 구현부
 // -----------------------------------------------------------------------------
 #include "RunState.h"
 #include "CardLibrary.h"
@@ -117,6 +118,7 @@ std::vector<T> PickDistinctFromPool(const std::vector<T>& pool, std::mt19937& rn
     return picks;
 }
 
+// 각 비전투 방은 "처음 진입할 때 1회 초기화"하는 방식으로 유지한다.
 void InitializeShopRoom(RunStateData& run) {
     if (run.shopRoom.initialized) {
         return;
@@ -667,6 +669,7 @@ RunNodeType PickNodeTypeForFloor(int floor, int regularFloorCount, std::mt19937&
     return RunNodeType::Elite;
 }
 
+// 맵 생성은 층별 노드를 먼저 두고, 그 다음 레인 연결을 만들어 흐름을 정리한다.
 void GenerateRunMap(RunStateData& run, int screenWidth, int screenHeight) {
     std::mt19937 rng(run.seed);
 
@@ -961,6 +964,7 @@ std::string BuildTimestampText() {
     return stream.str();
 }
 
+// 시작 카드팩 후보는 여기에서만 관리한다.
 std::vector<CardPackOption> BuildStarterCardPacks() {
     std::vector<CardPackOption> packs;
 
@@ -1012,6 +1016,7 @@ std::vector<CardPackOption> BuildStarterCardPacks() {
     return packs;
 }
 
+// 새 런 생성 시 저장 가능한 기본 상태를 한 번에 구성한다.
 void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int screenHeight) {
     run = {};
     run.seed = seed;
@@ -1062,6 +1067,7 @@ void ResetRoomRuntimeState(RunStateData& run) {
     run.currentRoomSummaryText.clear();
 }
 
+// 현재 노드 타입에 따라 필요한 방 런타임 데이터를 지연 초기화한다.
 void PrepareCurrentRoomState(RunStateData& run) {
     switch (run.currentRoomType) {
     case RunNodeType::Battle:

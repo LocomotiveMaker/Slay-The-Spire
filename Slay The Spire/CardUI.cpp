@@ -1,6 +1,8 @@
 #include "CardUI.h"
 #include "TextLayout.h"
 
+// 카드 렌더링은 폭 계산과 정렬 안정성이 중요해서, 숫자 배치와 줄바꿈을
+// 여기에서 한 번에 처리한다.
 namespace {
 
 constexpr int kCardInnerWidth = 26;

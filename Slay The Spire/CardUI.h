@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+// 손패 카드의 외형과 마우스 판정을 맡는 가벼운 뷰 클래스.
 class CardUI : public UIElement {
 private:
     CardData* data;

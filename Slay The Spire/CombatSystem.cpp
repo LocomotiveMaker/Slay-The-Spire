@@ -1,5 +1,6 @@
 // -----------------------------------------------------------------------------
 // @file       CombatSystem.cpp
+// @brief      실시간 전투 규칙과 카드 효과 처리 구현부
 // -----------------------------------------------------------------------------
 #include "CombatSystem.h"
 #include <algorithm>
@@ -7,6 +8,7 @@
 
 namespace {
 
+// 적 의도 창에 쓰이는 짧은 라벨 생성기.
 std::string BuildIntentLabel(EnemyIntentType type, int value) {
     switch (type) {
     case EnemyIntentType::Attack:
@@ -644,6 +646,7 @@ void CombatSystem::ExecuteEnemyIntent(CombatFrameResult& result) {
     }
 }
 
+// 전투 시작 시점에 손패/드로우/자원/상태이상 관련 런타임 값을 전부 초기화한다.
 void CombatSystem::StartBattle(const std::vector<CardData>& startingDeck) {
     drawPile = startingDeck;
     discardPile.clear();
@@ -730,6 +733,7 @@ void CombatSystem::StartBattle(const std::vector<CardData>& startingDeck) {
     CheckBattleEndState();
 }
 
+// 프레임마다 드로우, 에너지 회복, 적 의도 타이머를 한 번에 갱신한다.
 CombatFrameResult CombatSystem::Update(float deltaTimeSec, float timeScale) {
     CombatFrameResult result;
     if (battleOver || player == nullptr || enemy == nullptr) {
@@ -774,6 +778,8 @@ CombatFrameResult CombatSystem::Update(float deltaTimeSec, float timeScale) {
     return result;
 }
 
+// 카드 한 장 사용의 실제 판정 진입점.
+// 비용 검사, 타겟 검사, 효과 적용, 재사용/소멸/버리기까지 여기서 정리한다.
 CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget target) {
     CombatActionResult result;
     if (battleOver || handIndex < 0 || handIndex >= static_cast<int>(hand.size())) {

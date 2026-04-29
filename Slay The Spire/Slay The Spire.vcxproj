@@ -164,6 +164,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AsciiArtLibrary.cpp" />
     <ClCompile Include="Animation.cpp" />
     <ClCompile Include="AudioManager.cpp" />
     <ClCompile Include="ButtonUI.cpp" />
@@ -184,6 +185,7 @@
     <ClCompile Include="TooltipUI.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AsciiArtLibrary.h" />
     <ClInclude Include="Animation.h" />
     <ClInclude Include="AudioManager.h" />
     <ClInclude Include="ButtonUI.h" />

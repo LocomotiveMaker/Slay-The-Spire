@@ -1,6 +1,6 @@
 ﻿// -----------------------------------------------------------------------------
 // @file       main.cpp
-// @brief      Application entry point for the title/run state machine skeleton.
+// @brief      타이틀, 런, 전투, 오버레이를 묶는 메인 루프
 // -----------------------------------------------------------------------------
 #include <algorithm>
 #include <chrono>
@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "AudioManager.h"
+#include "AsciiArtLibrary.h"
 #include "ButtonUI.h"
 #include "CardUI.h"
 #include "CardLibrary.h"
@@ -31,6 +32,7 @@ using namespace std;
 
 namespace {
 
+// 메인 파일 로컬 유틸리티 모음.
 struct Rect {
     int x = 0;
     int y = 0;
@@ -178,115 +180,6 @@ Rect LerpRectFixedBottomCenter(const Rect& from, const Rect& to, float t) {
     return result;
 }
 
-bool IsBlankLikeArtCell(wchar_t ch) {
-    return ch == L' ' || ch == 0x2800 || ch == L'\t';
-}
-
-std::string WideToUtf8Text(const std::wstring& wideText) {
-    if (wideText.empty()) {
-        return {};
-    }
-
-    const int utf8Length = WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        wideText.data(),
-        static_cast<int>(wideText.size()),
-        nullptr,
-        0,
-        nullptr,
-        nullptr);
-    if (utf8Length <= 0) {
-        return {};
-    }
-
-    std::string utf8Text(static_cast<size_t>(utf8Length), '\0');
-    WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        wideText.data(),
-        static_cast<int>(wideText.size()),
-        utf8Text.data(),
-        utf8Length,
-        nullptr,
-        nullptr);
-    return utf8Text;
-}
-
-std::vector<std::string> NormalizeArtLines(const std::vector<std::string>& lines) {
-    std::vector<std::wstring> wideLines;
-    wideLines.reserve(lines.size());
-
-    int commonLeading = 100000;
-    bool foundContent = false;
-
-    for (const std::string& line : lines) {
-        std::wstring wideLine = TextLayout::Utf8ToWide(line);
-        int leadingCount = 0;
-        int contentStart = static_cast<int>(wideLine.size());
-        int contentEnd = -1;
-
-        for (int index = 0; index < static_cast<int>(wideLine.size()); ++index) {
-            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
-                contentStart = index;
-                break;
-            }
-            ++leadingCount;
-        }
-
-        for (int index = static_cast<int>(wideLine.size()) - 1; index >= 0; --index) {
-            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
-                contentEnd = index;
-                break;
-            }
-        }
-
-        if (contentEnd >= contentStart) {
-            foundContent = true;
-            commonLeading = (std::min)(commonLeading, leadingCount);
-        }
-        else {
-            commonLeading = (std::min)(commonLeading, 0);
-        }
-
-        wideLines.push_back(std::move(wideLine));
-    }
-
-    if (!foundContent) {
-        return {};
-    }
-
-    std::vector<std::string> normalized;
-    normalized.reserve(wideLines.size());
-    for (const std::wstring& wideLine : wideLines) {
-        int contentStart = static_cast<int>(wideLine.size());
-        int contentEnd = -1;
-
-        for (int index = 0; index < static_cast<int>(wideLine.size()); ++index) {
-            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
-                contentStart = index;
-                break;
-            }
-        }
-
-        for (int index = static_cast<int>(wideLine.size()) - 1; index >= 0; --index) {
-            if (!IsBlankLikeArtCell(wideLine[static_cast<size_t>(index)])) {
-                contentEnd = index;
-                break;
-            }
-        }
-
-        if (contentEnd < contentStart) {
-            continue;
-        }
-
-        const int trimStart = (std::min)(contentStart, commonLeading);
-        normalized.push_back(WideToUtf8Text(std::wstring(wideLine.begin() + trimStart, wideLine.begin() + contentEnd + 1)));
-    }
-
-    return normalized;
-}
-
 std::vector<int> BuildStarterPackOfferIndices(std::uint32_t seed, int packCount, int offerCount = 3) {
     std::vector<int> indices;
     indices.reserve(static_cast<size_t>(packCount));
@@ -385,58 +278,37 @@ void RenderAnchoredArt(ScreenManager& screen, int centerX, int bottomY, const st
     }
 }
 
-std::vector<std::string> BuildDeathPlayerArt() {
-    return {
-        u8"⢀⣀⣀⣀⣀",
-        u8"⣠⣴⣶⣶⣶⣶⣶⣶⣾⣿⣿⣿⣿⣿⣿⣟",
-        u8"⢀⣴⣤⣤⣤⣴⣶⣦⣶⣶⣿⣿⣿⣿⣿⣿⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏",
-        u8"⠿⠟⠋⠛⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠛⠩⠛⠻⠿⠿⣿⡿⢟⣟⢠⣄⡀",
-        u8"⢀⣾⣿⣿⣿⣿⣿⣿⣿⡿⠿⠛⠛⠉⠉⠀⠀⠀⠀⠀⠀⠀⢠⣀⣠⣀⣴⣿⠿⠿⢷⣿⣶",
-        u8"⡾⠋⠁⠀⠀⠀⠀⣀⣀⣠⣤⣤⣤⣴⣶⡶⠶⠾⠿⠟⠛⠛⠋⠉⠏",
-        u8"⠠⢘⠏⠉⠁"
-    };
-}
+void RenderAnchoredArtClipped(ScreenManager& screen, int centerX, int bottomY, const std::vector<std::string>& lines, WORD color, const Rect& clipRect) {
+    if (lines.empty()) {
+        return;
+    }
 
-std::vector<std::string> BuildCardPackPlayerArt() {
-    return NormalizeArtLines({
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣾⣶⣄",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⡇",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⣠⣼⣿⣿⣿⣟⣀⡀",
-        u8"⣴⣀⡀⠀⠀⠀⠀⢀⡀⣼⣿⣿⣿⣿⣿⣿⣿⣆",
-        u8"⠛⠿⠿⠿⠿⠿⠿⠿⣿⢿⣿⣿⣿⣿⣿⣿⣿⣿⡏",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠛⣿⣿⣿⣿⣿⢿⣿⡇",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣿⣿⣿⣿⡎⠛⠁",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣄",
-        u8"⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆",
-        u8"⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⠋⠀⠀⠙⠿⣿⣿⣿⣄",
-        u8"⠀⠀⠀⠀⠀⠀⠘⣿⣿⡿⠋⠀⠀⠀⠀⠀⠈⢻⣿⣿⡄",
-        u8"⠀⠀⠀⠀⠀⠀⠀⢹⣿⠁⠀⠀⠀⠀⠀⠀⠀⠈⠙⠿⣿⣦",
-        u8"⠀⠀⠀⠀⠀⠀⣤⣾⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣹⣿⡀",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠛⠋"
-        });
-}
+    // Used for oversized scene art that should only expose part of the source.
+    const int artWidth = MeasureArtWidth(lines);
+    const int artTopY = bottomY - static_cast<int>(lines.size()) + 1;
+    const int artLeftX = centerX - (artWidth / 2);
 
-std::vector<std::string> BuildNeowArt() {
-    return NormalizeArtLines({
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣶⣶⣶⣤⣀",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣾⣿⣿⣿⣿⡿⠛⠛⢿⣿⣿⣿⣧",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⠏⠀⠀⠀⠀⠹⣿⣿⣿⣇",
-        u8"⠀⠀⠀⠀⠀⠀⠀⣠⣿⣿⣿⣿⣿⣿⣶⣶⣶⣶⣶⣿⣿⣿⣿⣿⣆",
-        u8"⠀⠀⠀⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣿⡿⠟⠛⠻⢿⣿⣿⣿⣿⣿⣿⣦",
-        u8"⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣿⣿⣿⠏⠀⣠⣤⣄⠀⠹⣿⣿⣿⣿⣿⣿⣇",
-        u8"⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⡏⠀⣾⣿⣿⣿⣷⠀⢹⣿⣿⣿⣿⣿⣿",
-        u8"⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀⢿⣿⣿⣿⡿⠀⣼⣿⣿⣿⣿⣿⣿",
-        u8"⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠉⠉⠉⣠⣾⣿⣿⣿⣿⣿⣿⣿",
-        u8"⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-        u8"⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-        u8"⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-        u8"⠀⠀⠸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿",
-        u8"⠀⠀⠀⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠃",
-        u8"⠀⠀⠀⠀⠹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠏",
-        u8"⠀⠀⠀⠀⠀⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠁",
-        u8"⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠿⠿⠿⠿⠿⠿⠿⠿⠛⠉"
-        });
+    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+        const int drawY = artTopY + static_cast<int>(lineIndex);
+        if (drawY < clipRect.y || drawY >= clipRect.y + clipRect.height) {
+            continue;
+        }
+
+        const std::wstring wideLine = TextLayout::Utf8ToWide(lines[lineIndex]);
+        const int lineWidth = TextLayout::MeasureDisplayWidth(wideLine);
+        int cursorX = artLeftX + ((artWidth - lineWidth) / 2);
+
+        for (wchar_t ch : wideLine) {
+            const int cellWidth = TextLayout::GetCellWidth(ch);
+            const bool insideClip =
+                cursorX >= clipRect.x &&
+                cursorX + cellWidth <= clipRect.x + clipRect.width;
+            if (insideClip) {
+                screen.DrawChar(cursorX, drawY, ch, color);
+            }
+            cursorX += cellWidth;
+        }
+    }
 }
 
 std::vector<std::string> BuildStatusTooltipLines(const std::string& key, int value) {
@@ -894,6 +766,7 @@ std::vector<std::string> BuildRunRecordDetailLines(const RunRecordData& record) 
 
 } // namespace
 
+// 실제 게임 루프 진입점.
 int main() {
     SetConsoleOutputCP(CP_UTF8);
 
@@ -1030,6 +903,7 @@ int main() {
         mapRenderer.SetNodes(&run.nodes);
         mapRenderer.FocusToFloor(1);
         resetCombatPresentation();
+        activeSliderId = -1;
         tooltip.SetVisible(false);
         appState = AppState::Run;
         titleOverlay = TitleOverlayType::None;
@@ -1515,7 +1389,6 @@ int main() {
             const bool endingOverlayOpen = (run.overlay == RunOverlayType::Ending);
             const bool allowHudOverlayToggle =
                 (run.overlay != RunOverlayType::Confirm &&
-                 run.overlay != RunOverlayType::Settings &&
                  !endingOverlayOpen);
 
             if (pressedMapHotkey && allowHudOverlayToggle && run.scene != RunSceneType::CardPackSelect) {
@@ -1637,10 +1510,14 @@ int main() {
             if (run.scene == RunSceneType::CardPackSelect) {
                 const bool cardPackInputAllowed = (run.overlay == RunOverlayType::None);
                 const std::vector<int> offeredPackIndices = BuildStarterPackOfferIndices(run.seed, static_cast<int>(starterPacks.size()), 3);
-                const std::vector<std::string> playerCardPackArt = BuildCardPackPlayerArt();
-                const std::vector<std::string> neowArt = BuildNeowArt();
-                const int playerArtBottomY = screen.GetHeight() - 6;
+                const std::vector<std::string>& playerCardPackArt = AsciiArtLibrary::Get(AsciiArtId::PlayerCardPack);
+                const std::vector<std::string>& neowArt = AsciiArtLibrary::Get(AsciiArtId::Neow);
+                const Rect playerArtClip = { 2, 7, 34, screen.GetHeight() - 12 };
+                const Rect neowArtClip = { screen.GetWidth() - 34, 6, 32, screen.GetHeight() - 10 };
+                const int playerArtBottomY = screen.GetHeight() - 5;
                 const int neowArtBottomY = screen.GetHeight() - 4;
+                const int neowVisibleWidth = 28;
+                const int neowCenterX = screen.GetWidth() + (MeasureArtWidth(neowArt) / 2) - (neowVisibleWidth / 2);
                 const int packPanelWidth = 24;
                 const int packPanelHeight = 18;
                 const int packGap = 3;
@@ -1653,10 +1530,10 @@ int main() {
                 const Rect headline = { screen.GetCenterX() - 32, 6, 64, 6 };
                 const Rect collapsedDetailRect = { screen.GetCenterX() - 20, detailBottomY - 5, 40, 5 };
                 const Rect expandedDetailRect = { screen.GetCenterX() - (expandedDetailWidth / 2), detailBottomY - 21, expandedDetailWidth, 21 };
-                const Rect speechRect = { screen.GetWidth() - 38, 8, 22, 5 };
+                const Rect speechRect = { screen.GetWidth() - 34, 5, 22, 5 };
 
-                RenderAnchoredArt(screen, 22, playerArtBottomY, playerCardPackArt, COLOR_WHITE);
-                RenderAnchoredArt(screen, screen.GetWidth() - 18, neowArtBottomY, neowArt, COLOR_WHITE);
+                RenderAnchoredArtClipped(screen, 19, playerArtBottomY, playerCardPackArt, COLOR_WHITE, playerArtClip);
+                RenderAnchoredArtClipped(screen, neowCenterX, neowArtBottomY, neowArt, COLOR_WHITE, neowArtClip);
 
                 RenderFrameBox(screen, speechRect, COLOR_WHITE);
                 screen.DrawString(
@@ -2040,13 +1917,13 @@ int main() {
                         const int combatBaselineY = screen.GetHeight() - 24;
                         const int combatPlayerY = combatBaselineY;
                         const int combatEnemyY = combatBaselineY;
-                        const Rect drawPileRect = { 2, screen.GetHeight() - 9, 10, 4 };
-                        const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 9, 10, 4 };
+                        const Rect drawPileRect = { 2, screen.GetHeight() - 6, 10, 4 };
+                        const Rect discardPileRect = { screen.GetWidth() - 12, screen.GetHeight() - 6, 10, 4 };
                         const Rect energyRect = { (std::max)(14, combatPlayerX - 38), screen.GetHeight() - 17, 30, 9 };
                         Rect intentRect = { combatEnemyX - 11, 8, 24, 5 };
 
                         auto renderDeadPlayerPose = [&]() {
-                            static const std::vector<std::string> deadLines = BuildDeathPlayerArt();
+                            static const std::vector<std::string>& deadLines = AsciiArtLibrary::Get(AsciiArtId::PlayerDeath);
                             RenderAnchoredArt(screen, combatPlayerX, combatPlayerY, deadLines, COLOR_RED);
                         };
 
@@ -2188,7 +2065,7 @@ int main() {
                             const int cardSpacing = 28 - overlapChars;
                             const int totalHandWidth = cardCount > 0 ? (28 + (cardCount - 1) * cardSpacing) : 0;
                             const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
-                            const int handBaseY = screen.GetHeight() - 17;
+                            const int handBaseY = screen.GetHeight() - 15;
                             const bool allowCardInteraction = (run.overlay == RunOverlayType::None);
 
                             const auto recenterHandLayout = [&]() {
@@ -2486,7 +2363,7 @@ int main() {
                                 const bool inputEnabled = (run.overlay == RunOverlayType::None);
 
                                 if (entityData.poison > 0) {
-                                    const std::string poisonText = std::string(u8"독 ") + std::to_string(entityData.poison);
+                                    const std::string poisonText = std::string(u8"독") + std::to_string(entityData.poison);
                                     const int poisonX = barX + barWidth + 2;
                                     const Rect poisonRect = { poisonX, barY, TextLayout::MeasureDisplayWidthUtf8(poisonText), 1 };
                                     screen.DrawString(poisonX, barY, poisonText, COLOR_GREEN);
@@ -3203,7 +3080,7 @@ int main() {
                 tooltip.Render(screen);
             }
 
-            const int debugBaseY = screen.GetHeight() - 5;
+            const int debugBaseY = 5;
             const string fpsText = "FPS: " + to_string(static_cast<int>(round(displayedFps)));
             const string frameText = "Frame: " + to_string(static_cast<int>(round(displayedFrameMs))) + " ms";
             const string seedText = "Seed: " + to_string(run.seed);
