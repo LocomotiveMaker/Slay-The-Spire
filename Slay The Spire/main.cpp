@@ -1085,13 +1085,27 @@ std::vector<std::string> BuildRunRecordDetailLines(const RunRecordData& record) 
     };
 }
 
+ScreenMode ParseScreenMode(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        const string arg = argv[i] != nullptr ? argv[i] : "";
+        if (arg == "--fullscreen" || arg == "/fullscreen") {
+            return ScreenMode::Fullscreen;
+        }
+        if (arg == "--windowed" || arg == "/windowed") {
+            return ScreenMode::WindowedNearFullscreen;
+        }
+    }
+
+    return ScreenMode::Fullscreen;
+}
+
 } // namespace
 
 // 실제 게임 루프 진입점.
-int main() {
+int main(int argc, char* argv[]) {
     SetConsoleOutputCP(CP_UTF8);
 
-    ScreenManager screen;
+    ScreenManager screen(ParseScreenMode(argc, argv));
     InputManager input;
     AudioManager audio;
     TooltipUI tooltip;

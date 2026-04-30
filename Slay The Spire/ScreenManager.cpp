@@ -4,9 +4,15 @@
 // -----------------------------------------------------------------------------
 #include "ScreenManager.h"
 #include "TextLayout.h"
+#include <algorithm>
 #include <cwchar>
 
 namespace {
+
+constexpr short kPreferredWindowedWidth = 160;
+constexpr short kPreferredWindowedHeight = 48;
+constexpr short kWindowedMarginColumns = 8;
+constexpr short kWindowedMarginRows = 4;
 
 RECT GetPreferredMonitorRect(HWND hwnd) {
     HMONITOR monitor = nullptr;
@@ -31,6 +37,42 @@ RECT GetPreferredMonitorRect(HWND hwnd) {
     fallbackRect.right = GetSystemMetrics(SM_CXSCREEN);
     fallbackRect.bottom = GetSystemMetrics(SM_CYSCREEN);
     return fallbackRect;
+}
+
+void ApplyWindowedStyle(HWND hwnd) {
+    if (hwnd == nullptr) {
+        return;
+    }
+
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    style |= WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
+    style &= ~WS_POPUP;
+    SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+
+    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    UpdateWindow(hwnd);
+}
+
+void CenterConsoleWindow(HWND hwnd) {
+    if (hwnd == nullptr) {
+        return;
+    }
+
+    RECT windowRect = {};
+    if (!GetWindowRect(hwnd, &windowRect)) {
+        return;
+    }
+
+    const RECT monitorRect = GetPreferredMonitorRect(hwnd);
+    const int windowWidth = windowRect.right - windowRect.left;
+    const int windowHeight = windowRect.bottom - windowRect.top;
+    const int monitorWidth = monitorRect.right - monitorRect.left;
+    const int monitorHeight = monitorRect.bottom - monitorRect.top;
+    const int targetX = monitorRect.left + ((monitorWidth - windowWidth) / 2);
+    const int targetY = monitorRect.top + ((monitorHeight - windowHeight) / 2);
+
+    SetWindowPos(hwnd, HWND_NOTOPMOST, targetX, targetY, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
 }
 
 void ApplyBorderlessFullscreen(HWND hwnd) {
@@ -60,6 +102,44 @@ void ApplyBorderlessFullscreen(HWND hwnd) {
 
     ShowWindow(hwnd, SW_MAXIMIZE);
     UpdateWindow(hwnd);
+}
+
+bool ApplyConsoleLayout(HANDLE hConsole, COORD desiredSize, int& width, int& height, COORD& bufferSize, SMALL_RECT& windowRect) {
+    SMALL_RECT tempWindow = { 0, 0, 1, 1 };
+    SetConsoleWindowInfo(hConsole, TRUE, &tempWindow);
+
+    if (!SetConsoleScreenBufferSize(hConsole, desiredSize)) {
+        return false;
+    }
+
+    SMALL_RECT exactWindow = { 0, 0, static_cast<short>(desiredSize.X - 1), static_cast<short>(desiredSize.Y - 1) };
+    if (!SetConsoleWindowInfo(hConsole, TRUE, &exactWindow)) {
+        return false;
+    }
+
+    width = desiredSize.X;
+    height = desiredSize.Y;
+    bufferSize = desiredSize;
+    windowRect = exactWindow;
+    return true;
+}
+
+COORD GetWindowedConsoleSize(HANDLE hConsole) {
+    const COORD largestWindow = GetLargestConsoleWindowSize(hConsole);
+    if (largestWindow.X <= 0 || largestWindow.Y <= 0) {
+        return { kPreferredWindowedWidth, kPreferredWindowedHeight };
+    }
+
+    const int maxWidth = (std::max)(80, static_cast<int>(largestWindow.X));
+    const int maxHeight = (std::max)(25, static_cast<int>(largestWindow.Y));
+    const short targetWidth = static_cast<short>((std::min)(
+        maxWidth,
+        (std::max)(static_cast<int>(kPreferredWindowedWidth), maxWidth - kWindowedMarginColumns)));
+    const short targetHeight = static_cast<short>((std::min)(
+        maxHeight,
+        (std::max)(static_cast<int>(kPreferredWindowedHeight), maxHeight - kWindowedMarginRows)));
+
+    return { targetWidth, targetHeight };
 }
 
 void SyncConsoleViewport(HANDLE hConsole, int& width, int& height, COORD& bufferSize, SMALL_RECT& windowRect) {
@@ -92,32 +172,42 @@ void SyncConsoleViewport(HANDLE hConsole, int& width, int& height, COORD& buffer
 
 } // namespace
 
-ScreenManager::ScreenManager()
+ScreenManager::ScreenManager(ScreenMode mode)
     : hConsole(GetStdHandle(STD_OUTPUT_HANDLE)), screenBuffer(nullptr), width(0), height(0) {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 
     ApplyDisplaySettings();
-    ApplyBorderlessFullscreen(GetConsoleWindow());
-    Sleep(100);
+    HWND consoleWindow = GetConsoleWindow();
 
-    SMALL_RECT tempWindow = { 0, 0, 1, 1 };
-    SetConsoleWindowInfo(hConsole, TRUE, &tempWindow);
+    if (mode == ScreenMode::Fullscreen) {
+        ApplyBorderlessFullscreen(consoleWindow);
+        Sleep(100);
 
-    const COORD largestWindow = GetLargestConsoleWindowSize(hConsole);
-    width = (largestWindow.X > 0) ? largestWindow.X : 160;
-    height = (largestWindow.Y > 0) ? largestWindow.Y : 48;
+        const COORD largestWindow = GetLargestConsoleWindowSize(hConsole);
+        const COORD fullscreenSize = {
+            static_cast<short>((largestWindow.X > 0) ? largestWindow.X : kPreferredWindowedWidth),
+            static_cast<short>((largestWindow.Y > 0) ? largestWindow.Y : kPreferredWindowedHeight)
+        };
+        ApplyConsoleLayout(hConsole, fullscreenSize, width, height, bufferSize, windowRect);
 
-    bufferSize = { static_cast<short>(width), static_cast<short>(height) };
-    windowRect = { 0, 0, static_cast<short>(width - 1), static_cast<short>(height - 1) };
+        ApplyBorderlessFullscreen(consoleWindow);
+        Sleep(50);
+        SyncConsoleViewport(hConsole, width, height, bufferSize, windowRect);
+    }
+    else {
+        ApplyWindowedStyle(consoleWindow);
+        const COORD windowedSize = GetWindowedConsoleSize(hConsole);
+        if (!ApplyConsoleLayout(hConsole, windowedSize, width, height, bufferSize, windowRect)) {
+            width = kPreferredWindowedWidth;
+            height = kPreferredWindowedHeight;
+            bufferSize = { static_cast<short>(width), static_cast<short>(height) };
+            windowRect = { 0, 0, static_cast<short>(width - 1), static_cast<short>(height - 1) };
+        }
+        CenterConsoleWindow(consoleWindow);
+    }
 
-    SetConsoleScreenBufferSize(hConsole, bufferSize);
-    SetConsoleWindowInfo(hConsole, TRUE, &windowRect);
-
-    ApplyBorderlessFullscreen(GetConsoleWindow());
-    Sleep(50);
-    SyncConsoleViewport(hConsole, width, height, bufferSize, windowRect);
-    ShowScrollBar(GetConsoleWindow(), SB_BOTH, FALSE);
+    ShowScrollBar(consoleWindow, SB_BOTH, FALSE);
 
     screenBuffer = new CHAR_INFO[width * height];
     Clear();

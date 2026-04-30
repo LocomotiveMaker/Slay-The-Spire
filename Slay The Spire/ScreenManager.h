@@ -10,6 +10,11 @@
 #include <windows.h>
 #include <string>
 
+enum class ScreenMode {
+    WindowedNearFullscreen,
+    Fullscreen
+};
+
 // 자주 사용하는 색상 정의 (비트 연산 조합)
 const WORD COLOR_WHITE = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
 const WORD COLOR_RED = FOREGROUND_RED | FOREGROUND_INTENSITY;
@@ -36,7 +41,7 @@ private:
     void DrawAsciiString(int x, int y, const std::string& str, WORD color);
 
 public:
-    ScreenManager();
+    explicit ScreenManager(ScreenMode mode = ScreenMode::WindowedNearFullscreen);
     ~ScreenManager();
 
     // 화면 갱신 및 해상도 정보 
