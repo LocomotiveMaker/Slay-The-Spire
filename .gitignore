@@ -19,8 +19,8 @@ x86/
 .build/
 capture/
 Save/
-Slay The Spire/x64/
-Slay The Spire/x86/
+Blitz of Card/x64/
+Blitz of Card/x86/
 
 # C/C++ intermediates and binaries
 *.d
@@ -42,5 +42,5 @@ Slay The Spire/x86/
 !dist/x64-Release/*.exe
 
 # Keep source assets inside the project tree
-!Slay The Spire/Assets/
-!Slay The Spire/Assets/**
+!Blitz of Card/Assets/
+!Blitz of Card/Assets/**

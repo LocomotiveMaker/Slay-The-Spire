@@ -1,9 +1,9 @@
-# Slay The Spire Agent Notes
+# Blitz of Card Agent Notes
 - Target: Windows console-only C++17 prototype with pure ASCII rendering.
 - Keep the existing MVC split intact.
-- Model lives in `Slay The Spire/GameData.h` and stays as plain data structs.
+- Model lives in `Blitz of Card/GameData.h` and stays as plain data structs.
 - View classes read model pointers only and do not mutate gameplay state.
-- Controller logic currently lives in `Slay The Spire/main.cpp`.
+- Controller logic currently lives in `Blitz of Card/main.cpp`.
 - All rendering must go through `ScreenManager`; avoid direct `cout`.
 - Preserve the back-buffered `CHAR_INFO` render path and 60 FPS loop style.
 - Input must stay polling-based through `InputManager`; avoid blocking input APIs.
@@ -14,7 +14,7 @@
 - Map rendering uses wheel input, lerped camera movement, and culling.
 - Drag targeting uses `TargetingArrow` and should remain frame-driven.
 - Audio paths are resolved relative to the executable through `AudioManager`.
-- Source audio assets now live in `Slay The Spire/Assets/Audio`.
+- Source audio assets now live in `Blitz of Card/Assets/Audio`.
 - Build outputs and Visual Studio local state must never be committed.
 - Use `tools/Build-Solution.ps1` for CLI builds.
 - Use `tools/Open-Solution.ps1` to launch the solution in Visual Studio.

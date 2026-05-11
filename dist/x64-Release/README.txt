@@ -1,7 +1,7 @@
-Slay The Spire - x64 Release
+Blitz of Card - x64 Release
 
 Default exhibit mode:
-- Run "Slay The Spire.exe" or "Run-Fullscreen.bat".
+- Run "Blitz of Card.exe" or "Run-Fullscreen.bat".
 - This starts fullscreen mode.
 
 Fallback windowed mode:

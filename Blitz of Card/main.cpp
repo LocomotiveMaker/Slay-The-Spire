@@ -1117,7 +1117,7 @@ int main(int argc, char* argv[]) {
     vector<CardPackOption> starterPacks = BuildStarterCardPacks();
 
     audio.SetVolumes(settings.masterVolume, settings.bgmVolume, settings.sfxVolume);
-    audio.PlayBGM(L"Slay the Spire.wav", 100.0f);
+    audio.PlayBGM(L"Blitz of Card.wav", 100.0f);
 
     AppState appState = AppState::Title;
     TitleOverlayType titleOverlay = TitleOverlayType::None;
@@ -1319,7 +1319,7 @@ int main(int argc, char* argv[]) {
         };
 
     auto queueRoomBgm = [&]() {
-        std::wstring track = L"Slay the Spire.wav";
+        std::wstring track = L"Blitz of Card.wav";
         int targetPercent = 100;
         float fadeOutSec = 0.2f;
         float fadeInSec = 0.35f;
@@ -1449,8 +1449,8 @@ int main(int argc, char* argv[]) {
         neowVoicePlayed = false;
         lastHoveredMapNodeId = -1;
         hoverAudioLatch.clear();
-        audio.QueueBGMFade(L"Slay the Spire.wav", 100.0f, 0.2f, 0.45f);
-        lastQueuedBgmTrack = L"Slay the Spire.wav";
+        audio.QueueBGMFade(L"Blitz of Card.wav", 100.0f, 0.2f, 0.45f);
+        lastQueuedBgmTrack = L"Blitz of Card.wav";
         lastQueuedBgmPercent = 100;
         };
 

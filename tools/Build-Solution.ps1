@@ -9,7 +9,7 @@ param(
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$solutionPath = Join-Path $repoRoot "Slay The Spire.sln"
+$solutionPath = Join-Path $repoRoot "Blitz of Card.sln"
 $vswherePath = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
 $solutionPlatform = if ($Platform -eq "Win32") { "x86" } else { $Platform }
 

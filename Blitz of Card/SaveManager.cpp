@@ -24,7 +24,7 @@ std::filesystem::path FindProjectRoot() {
     std::filesystem::path current = GetModuleDirectory();
 
     for (int depth = 0; depth < 6; ++depth) {
-        if (std::filesystem::exists(current / "Slay The Spire.sln") || std::filesystem::exists(current / "AGENT.md")) {
+        if (std::filesystem::exists(current / "Blitz of Card.sln") || std::filesystem::exists(current / "AGENT.md")) {
             return current;
         }
 

@@ -1,4 +1,4 @@
 @echo off
 pushd "%~dp0"
-start "" "Slay The Spire.exe" --windowed
+start "" "Blitz of Card.exe" --windowed
 popd

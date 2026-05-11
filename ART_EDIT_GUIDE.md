@@ -3,7 +3,7 @@
 ## 1. Main edit file
 
 Edit art in:
-[AsciiArtLibrary.cpp](/C:/github/Slay%20The%20Spire/Slay%20The%20Spire/AsciiArtLibrary.cpp)
+[AsciiArtLibrary.cpp](/C:/Slay-The-Spire/Blitz%20of%20Card/AsciiArtLibrary.cpp)
 
 This file currently owns:
 
@@ -22,9 +22,9 @@ This file currently owns:
 ## 3. Where art is used
 
 - Combat entities:
-  [EntityUI.cpp](/C:/github/Slay%20The%20Spire/Slay%20The%20Spire/EntityUI.cpp)
+  [EntityUI.cpp](/C:/Slay-The-Spire/Blitz%20of%20Card/EntityUI.cpp)
 - Card-pack scene / Neow clip:
-  [main.cpp](/C:/github/Slay%20The%20Spire/Slay%20The%20Spire/main.cpp)
+  [main.cpp](/C:/Slay-The-Spire/Blitz%20of%20Card/main.cpp)
 
 ## 4. Routing rules
 

@@ -48,7 +48,7 @@ std::wstring AudioManager::ResolveAudioPath(const std::wstring& filename) const 
         fs::path(exeDir) / L"Audio" / filename,
         fs::path(exeDir) / L".." / L".." / filename,
         fs::path(exeDir) / L".." / L".." / L"Assets" / L"Audio" / filename,
-        fs::path(exeDir) / L".." / L".." / L"Slay The Spire" / L"Assets" / L"Audio" / filename
+        fs::path(exeDir) / L".." / L".." / L"Blitz of Card" / L"Assets" / L"Audio" / filename
     };
 
     for (const fs::path& candidate : candidates) {

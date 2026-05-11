@@ -1,4 +1,4 @@
 @echo off
 pushd "%~dp0"
-start "" "Slay The Spire.exe" --fullscreen
+start "" "Blitz of Card.exe" --fullscreen
 popd
