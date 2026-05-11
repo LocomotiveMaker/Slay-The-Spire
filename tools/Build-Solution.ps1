@@ -2,7 +2,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [ValidateSet("x64", "Win32")]
+    [ValidateSet("x64", "x86", "Win32")]
     [string]$Platform = "x64",
 
     [switch]$UseDevenv
@@ -11,6 +11,7 @@ param(
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solutionPath = Join-Path $repoRoot "Slay The Spire.sln"
 $vswherePath = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+$solutionPlatform = if ($Platform -eq "Win32") { "x86" } else { $Platform }
 
 if (-not (Test-Path $vswherePath)) {
     throw "vswhere.exe not found."
@@ -27,7 +28,7 @@ if ($UseDevenv) {
         throw "devenv.com not found."
     }
 
-    & $toolPath $solutionPath /Build "$Configuration|$Platform"
+    & $toolPath $solutionPath /Build "$Configuration|$solutionPlatform"
     exit $LASTEXITCODE
 }
 
@@ -36,5 +37,5 @@ if (-not (Test-Path $toolPath)) {
     throw "MSBuild.exe not found."
 }
 
-& $toolPath $solutionPath "/t:Build" "/p:Configuration=$Configuration;Platform=$Platform" "/m"
+& $toolPath $solutionPath "/t:Build" "/p:Configuration=$Configuration;Platform=$solutionPlatform" "/m"
 exit $LASTEXITCODE

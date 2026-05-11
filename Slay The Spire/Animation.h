@@ -22,7 +22,7 @@ private:
     AnimMode mode;
     WORD color;
 
-    int currentFrame;
+    size_t currentFrame;
     bool isPlaying;
     std::chrono::steady_clock::time_point lastUpdateTime;
 

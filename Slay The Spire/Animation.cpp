@@ -63,6 +63,6 @@ void Animator::Render(ScreenManager& screen) {
 
     const auto& currentArt = frames[currentFrame];
     for (size_t i = 0; i < currentArt.size(); ++i) {
-        screen.DrawString(x, y + i, currentArt[i], color);
+        screen.DrawString(x, y + static_cast<int>(i), currentArt[i], color);
     }
 }

@@ -22,9 +22,14 @@ Windows console ASCII prototype inspired by Slay the Spire.
 
 ## Build
 
+- Visual Studio 2022 is required with `.vsconfig` components installed.
+- Required components are C++ desktop tools and Windows 10 SDK 10.0.19041.0 or newer.
+- If Visual Studio reports missing external dependency headers such as `windows.h`, `winnt.h`, or `winuser.h`, open Visual Studio Installer and import `.vsconfig` from the repository root.
 - Open `Slay The Spire.sln` in Visual Studio.
 - Build `Debug | x64` or `Release | x64`.
 - Run the generated `Slay The Spire.exe`.
+- Command-line build:
+  `powershell -ExecutionPolicy Bypass -File tools/Build-Solution.ps1 -Configuration Release -Platform x64`
 
 ## Notes
 
