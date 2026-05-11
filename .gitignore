@@ -38,6 +38,9 @@ Slay The Spire/x86/
 *.exe
 *.log
 
+# Keep packaged release executables visible in GitHub
+!dist/x64-Release/*.exe
+
 # Keep source assets inside the project tree
 !Slay The Spire/Assets/
 !Slay The Spire/Assets/**
