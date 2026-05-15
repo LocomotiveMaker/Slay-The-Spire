@@ -101,7 +101,8 @@
       <AdditionalDependencies>winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul
+if exist "$(ProjectDir)Assets\AsciiArt" xcopy /Y /I /E "$(ProjectDir)Assets\AsciiArt" "$(OutDir)Assets\AsciiArt\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -124,7 +125,8 @@
       <AdditionalDependencies>winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul
+if exist "$(ProjectDir)Assets\AsciiArt" xcopy /Y /I /E "$(ProjectDir)Assets\AsciiArt" "$(OutDir)Assets\AsciiArt\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -142,7 +144,8 @@
       <AdditionalDependencies>winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul
+if exist "$(ProjectDir)Assets\AsciiArt" xcopy /Y /I /E "$(ProjectDir)Assets\AsciiArt" "$(OutDir)Assets\AsciiArt\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -165,7 +168,8 @@
       <AdditionalDependencies>winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul</Command>
+      <Command>if exist "$(ProjectDir)Assets\Audio" xcopy /Y /I /E "$(ProjectDir)Assets\Audio" "$(OutDir)Assets\Audio\" &gt;nul
+if exist "$(ProjectDir)Assets\AsciiArt" xcopy /Y /I /E "$(ProjectDir)Assets\AsciiArt" "$(OutDir)Assets\AsciiArt\" &gt;nul</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -215,6 +219,16 @@
     <ClInclude Include="UIElement.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Assets\AsciiArt\Boss\centaurus.txt" />
+    <None Include="Assets\AsciiArt\Boss\hydra.txt" />
+    <None Include="Assets\AsciiArt\Boss\puppet.txt" />
+    <None Include="Assets\AsciiArt\Neow\angel.txt" />
+    <None Include="Assets\AsciiArt\Normal\monster-assets.txt" />
+    <None Include="Assets\AsciiArt\Player\alchemist.txt" />
+    <None Include="Assets\AsciiArt\Player\engineer.txt" />
+    <None Include="Assets\AsciiArt\Player\fighter.txt" />
+    <None Include="Assets\AsciiArt\Player\knight.txt" />
+    <None Include="Assets\AsciiArt\Player\swordsman.txt" />
     <None Include="Assets\Audio\Exordium.wav" />
     <None Include="Assets\Audio\campfire.wav" />
     <None Include="Assets\Audio\card_pick_sfx.wav" />

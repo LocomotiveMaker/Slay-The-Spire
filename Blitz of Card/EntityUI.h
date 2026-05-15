@@ -14,7 +14,8 @@ private:
     EntityData* data; // 바인딩된 데이터 객체
     bool isPlayer;
     bool isTargeted;
-    int hitAnimationTimer;
+    float hitAnimationTimerSec;
+    float attackAnimationTimerSec;
     int anchorCenterX;
     int anchorBottomY;
     int artWidth;
@@ -24,6 +25,8 @@ private:
     ProgressBarUI* healthBar; // 체력바 컴포넌트
 
     std::vector<std::string> asciiArt;
+    CardArchetype playerArchetype;
+    const std::vector<std::string>& ResolveCurrentArt() const;
     void RefreshLayout();
 
 public:
@@ -32,6 +35,7 @@ public:
 
     void SetTargeted(bool state);
     void TriggerHitAnimation();
+    void TriggerAttackAnimation();
     void SetAnchorBottomCenter(int centerX, int bottomY);
     int GetArtCenterX() const { return anchorCenterX; }
     int GetArtTopY() const { return anchorBottomY - artHeight + 1; }
@@ -44,5 +48,6 @@ public:
 
     // UIElement 오버라이드
     bool Update(InputManager& input) override;
+    void UpdateAnimation(float deltaTimeSec);
     void Render(ScreenManager& screen) override;
 };

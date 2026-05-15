@@ -11,16 +11,32 @@
 
 namespace {
 
+constexpr int kPlayerDeckVisualIdBase = 1000;
+
+CardArchetype ResolvePlayerArchetype(const EntityData* data) {
+    if (data == nullptr || data->id < kPlayerDeckVisualIdBase) {
+        return CardArchetype::None;
+    }
+
+    const int archetypeValue = data->id - kPlayerDeckVisualIdBase;
+    if (archetypeValue < static_cast<int>(CardArchetype::None) ||
+        archetypeValue > static_cast<int>(CardArchetype::Cycle)) {
+        return CardArchetype::None;
+    }
+
+    return static_cast<CardArchetype>(archetypeValue);
+}
+
 // Current combat art routing is intentionally simple so shared placeholder art
 // can be swapped without touching the rest of the combat UI.
 const std::vector<std::string>& ResolveEntityArt(const EntityData* data, bool isPlayer) {
     if (isPlayer) {
-        return AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+        return AsciiArtLibrary::GetPlayerBattle(ResolvePlayerArchetype(data));
     }
 
     // Temporary convention: 9200+ means boss art.
     if (data != nullptr && data->id >= 9200) {
-        return AsciiArtLibrary::Get(AsciiArtId::EnemyBoss);
+        return AsciiArtLibrary::GetRandomEnemyBoss();
     }
 
     // Temporary convention: 9100+ means elite art.
@@ -28,7 +44,7 @@ const std::vector<std::string>& ResolveEntityArt(const EntityData* data, bool is
         return AsciiArtLibrary::Get(AsciiArtId::EnemyElite);
     }
 
-    return AsciiArtLibrary::Get(AsciiArtId::EnemyNormal);
+    return AsciiArtLibrary::GetRandomEnemyNormal();
 }
 
 } // namespace
@@ -38,13 +54,15 @@ EntityUI::EntityUI(int x, int y, EntityData* entityData, bool playerEntity)
     data(entityData),
     isPlayer(playerEntity),
     isTargeted(false),
-    hitAnimationTimer(0),
+    hitAnimationTimerSec(0.0f),
+    attackAnimationTimerSec(0.0f),
     anchorCenterX(x),
     anchorBottomY(y),
     artWidth(0),
     artHeight(0),
     healthBarWidth(0),
-    healthBar(nullptr) {
+    healthBar(nullptr),
+    playerArchetype(ResolvePlayerArchetype(entityData)) {
     asciiArt = ResolveEntityArt(data, isPlayer);
 
     const WORD hpColor = isPlayer ? COLOR_GREEN : COLOR_RED;
@@ -56,10 +74,31 @@ EntityUI::~EntityUI() {
     delete healthBar;
 }
 
+const std::vector<std::string>& EntityUI::ResolveCurrentArt() const {
+    if (!isPlayer) {
+        return asciiArt;
+    }
+
+    if (data != nullptr && data->currentHp <= 0) {
+        return AsciiArtLibrary::GetPlayerDeath(playerArchetype);
+    }
+
+    if (hitAnimationTimerSec > 0.0f) {
+        return AsciiArtLibrary::GetPlayerDefend(playerArchetype);
+    }
+
+    if (attackAnimationTimerSec > 0.0f) {
+        return AsciiArtLibrary::GetPlayerAttack(playerArchetype);
+    }
+
+    return AsciiArtLibrary::GetPlayerBattle(playerArchetype);
+}
+
 void EntityUI::RefreshLayout() {
+    const std::vector<std::string>& currentArt = ResolveCurrentArt();
     artWidth = 0;
-    artHeight = static_cast<int>(asciiArt.size());
-    for (const std::string& line : asciiArt) {
+    artHeight = static_cast<int>(currentArt.size());
+    for (const std::string& line : currentArt) {
         artWidth = (std::max)(artWidth, TextLayout::MeasureDisplayWidthUtf8(line));
     }
 
@@ -80,7 +119,15 @@ void EntityUI::SetTargeted(bool state) {
 }
 
 void EntityUI::TriggerHitAnimation() {
-    hitAnimationTimer = 15;
+    hitAnimationTimerSec = 0.5f;
+}
+
+void EntityUI::TriggerAttackAnimation() {
+    if (!isPlayer) {
+        return;
+    }
+
+    attackAnimationTimerSec = 0.5f;
 }
 
 void EntityUI::SetAnchorBottomCenter(int centerX, int bottomY) {
@@ -90,12 +137,17 @@ void EntityUI::SetAnchorBottomCenter(int centerX, int bottomY) {
 }
 
 bool EntityUI::Update(InputManager& input) {
-    if (hitAnimationTimer > 0) {
-        --hitAnimationTimer;
-    }
-
     healthBar->Update(input);
     return false;
+}
+
+void EntityUI::UpdateAnimation(float deltaTimeSec) {
+    if (hitAnimationTimerSec > 0.0f) {
+        hitAnimationTimerSec = (std::max)(0.0f, hitAnimationTimerSec - deltaTimeSec);
+    }
+    if (attackAnimationTimerSec > 0.0f) {
+        attackAnimationTimerSec = (std::max)(0.0f, attackAnimationTimerSec - deltaTimeSec);
+    }
 }
 
 void EntityUI::Render(ScreenManager& screen) {
@@ -106,12 +158,13 @@ void EntityUI::Render(ScreenManager& screen) {
     RefreshLayout();
 
     int horizontalShake = 0;
-    if (hitAnimationTimer > 0) {
-        horizontalShake = (hitAnimationTimer % 4 < 2) ? 1 : -1;
+    if (hitAnimationTimerSec > 0.0f) {
+        const int shakeFrame = static_cast<int>(hitAnimationTimerSec * 60.0f);
+        horizontalShake = (shakeFrame % 4 < 2) ? 1 : -1;
     }
 
     WORD artColor = COLOR_WHITE;
-    if (hitAnimationTimer > 0) {
+    if (hitAnimationTimerSec > 0.0f) {
         artColor = COLOR_RED;
     }
     else if (isTargeted) {
@@ -120,10 +173,11 @@ void EntityUI::Render(ScreenManager& screen) {
 
     const int artTopY = GetArtTopY();
     const int artLeftX = anchorCenterX - (artWidth / 2);
-    for (size_t index = 0; index < asciiArt.size(); ++index) {
-        const int lineWidth = TextLayout::MeasureDisplayWidthUtf8(asciiArt[index]);
+    const std::vector<std::string>& currentArt = ResolveCurrentArt();
+    for (size_t index = 0; index < currentArt.size(); ++index) {
+        const int lineWidth = TextLayout::MeasureDisplayWidthUtf8(currentArt[index]);
         const int drawX = artLeftX + ((artWidth - lineWidth) / 2) + horizontalShake;
-        screen.DrawString(drawX, artTopY + static_cast<int>(index), asciiArt[index], artColor);
+        screen.DrawString(drawX, artTopY + static_cast<int>(index), currentArt[index], artColor);
     }
 
     const std::string headerText = isTargeted ? std::string(u8"[조준 중]") : data->name;

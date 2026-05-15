@@ -1057,11 +1057,14 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
 }
 
 void ApplyStarterPack(RunStateData& run, const CardPackOption& pack) {
+    constexpr int kPlayerDeckVisualIdBase = 1000;
+
     run.deck.clear();
     const std::vector<CardData> baseDeck = CardLibrary::BuildBaseStarterDeck();
     run.deck.insert(run.deck.end(), baseDeck.begin(), baseDeck.end());
     run.selectedCardPackTitle = pack.title;
     run.selectedCardPackArchetype = pack.archetype;
+    run.player.id = kPlayerDeckVisualIdBase + static_cast<int>(pack.archetype);
     for (const CardData& card : pack.cards) {
         run.deck.push_back(card);
     }

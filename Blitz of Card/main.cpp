@@ -2104,10 +2104,15 @@ int main(int argc, char* argv[]) {
                 const std::vector<std::string>& playerCardPackArt = AsciiArtLibrary::Get(AsciiArtId::PlayerCardPack);
                 const std::vector<std::string>& neowArt = AsciiArtLibrary::Get(AsciiArtId::Neow);
                 const Rect playerArtClip = { 2, 7, 34, screen.GetHeight() - 12 };
-                const Rect neowArtClip = { screen.GetWidth() - 72, 6, 160, screen.GetHeight() - 10 };
+                const Rect neowArtClip = {
+                    screen.GetCenterX() + 16,
+                    8,
+                    screen.GetWidth() - screen.GetCenterX() - 18,
+                    screen.GetHeight() - 14
+                };
                 const int playerArtBottomY = screen.GetHeight() - 5;
-                const int neowArtBottomY = screen.GetHeight() - 4;
-                const int neowCenterX = neowArtClip.x + (neowArtClip.width / 2) + kNeowCardPackOffsetX;
+                const int neowCenterX = neowArtClip.x + (neowArtClip.width / 2);
+                const int neowCenterY = neowArtClip.y + (neowArtClip.height / 2);
                 const int packPanelWidth = 24;
                 const int packPanelHeight = 18;
                 const int packGap = 3;
@@ -2129,7 +2134,7 @@ int main(int argc, char* argv[]) {
                 const Rect speechRect = { screen.GetWidth() - 49, 5, 22, 5 };
 
                 RenderAnchoredArtClipped(screen, 19, playerArtBottomY, playerCardPackArt, COLOR_WHITE, playerArtClip);
-                RenderAnchoredArtClipped(screen, neowCenterX, neowArtBottomY, neowArt, COLOR_WHITE, neowArtClip);
+                RenderCenteredArtClipped(screen, neowCenterX, neowCenterY, neowArt, COLOR_WHITE, neowArtClip);
 
                 RenderFrameBox(screen, speechRect, COLOR_WHITE);
                 screen.DrawString(
@@ -2657,7 +2662,7 @@ int main(int argc, char* argv[]) {
                         Rect intentRect = { combatEnemyX - 11, 8, 24, 5 };
 
                         auto renderDeadPlayerPose = [&]() {
-                            static const std::vector<std::string>& deadLines = AsciiArtLibrary::Get(AsciiArtId::PlayerDeath);
+                            const std::vector<std::string>& deadLines = AsciiArtLibrary::GetPlayerDeath(run.selectedCardPackArchetype);
                             RenderAnchoredArt(screen, combatPlayerX, combatPlayerY, deadLines, COLOR_RED);
                         };
 
@@ -2942,6 +2947,7 @@ int main(int argc, char* argv[]) {
                             if (playerEntityUi) {
                                 playerEntityUi->SetTargeted(dropTarget == CombatDropTarget::Player);
                                 playerEntityUi->Update(input);
+                                playerEntityUi->UpdateAnimation(deltaTimeSec);
                             }
                             if (enemyEntityUi) {
                                 enemyEntityUi->SetTargeted(dropTarget == CombatDropTarget::Enemy);
@@ -3024,6 +3030,9 @@ int main(int argc, char* argv[]) {
                                         }
                                         if (enemyEntityUi && actionResult.enemyHit) {
                                             enemyEntityUi->TriggerHitAnimation();
+                                        }
+                                        if (playerEntityUi && actionResult.enemyHit) {
+                                            playerEntityUi->TriggerAttackAnimation();
                                         }
                                         if (playerEntityUi && actionResult.playerHit) {
                                             playerEntityUi->TriggerHitAnimation();
@@ -3290,7 +3299,7 @@ int main(int argc, char* argv[]) {
                     }
                     case RunNodeType::Shop:
                     {
-                        const std::vector<std::string>& playerShopArt = AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+                        const std::vector<std::string>& playerShopArt = AsciiArtLibrary::GetPlayerBattle(run.selectedCardPackArchetype);
                         const std::vector<std::string>& merchantArt = AsciiArtLibrary::Get(AsciiArtId::Merchant);
                         const Rect playerClip = { 2, 8, 44, screen.GetHeight() - 10 };
                         const Rect merchantClip = { roomPanel.x + roomPanel.width / 2 + 6, 8, screen.GetWidth() - (roomPanel.x + roomPanel.width / 2 + 10), screen.GetHeight() - 10 };
@@ -3527,7 +3536,7 @@ int main(int argc, char* argv[]) {
                     }
                     case RunNodeType::Rest:
                     {
-                        const std::vector<std::string>& playerRestArt = AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+                        const std::vector<std::string>& playerRestArt = AsciiArtLibrary::GetPlayerBattle(run.selectedCardPackArchetype);
                         const Rect playerClip = { 2, 8, 44, screen.GetHeight() - 10 };
                         const Rect fireClip = { screen.GetCenterX() - 8, 10, 60, screen.GetHeight() - 10 };
                         static float campfireAnimTimerSec = 0.0f;
@@ -3589,7 +3598,7 @@ int main(int argc, char* argv[]) {
                     }
                     case RunNodeType::Treasure:
                     {
-                        const std::vector<std::string>& playerTreasureArt = AsciiArtLibrary::Get(AsciiArtId::PlayerBattle);
+                        const std::vector<std::string>& playerTreasureArt = AsciiArtLibrary::GetPlayerBattle(run.selectedCardPackArchetype);
                         const std::vector<std::string>& chestClosedArt = AsciiArtLibrary::Get(AsciiArtId::TreasureChestClosed);
                         const std::vector<std::string>& chestOpenArt = AsciiArtLibrary::Get(AsciiArtId::TreasureChestOpen);
                         const Rect playerClip = { 2, 8, 44, screen.GetHeight() - 10 };

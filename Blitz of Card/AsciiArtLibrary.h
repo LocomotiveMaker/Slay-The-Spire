@@ -5,17 +5,48 @@
 // -----------------------------------------------------------------------------
 #pragma once
 
+#include "GameData.h"
+
 #include <string>
 #include <vector>
 
 enum class AsciiArtId {
     TitleLogo,
     PlayerBattle,
+    PlayerBattleCombo,
+    PlayerBattleStrength,
+    PlayerBattleBlock,
+    PlayerBattlePoison,
+    PlayerBattleCycle,
+    PlayerAttackCombo,
+    PlayerAttackStrength,
+    PlayerAttackBlock,
+    PlayerAttackPoison,
+    PlayerAttackCycle,
+    PlayerDefendCombo,
+    PlayerDefendStrength,
+    PlayerDefendBlock,
+    PlayerDefendPoison,
+    PlayerDefendCycle,
     PlayerDeath,
+    PlayerDeathCombo,
+    PlayerDeathStrength,
+    PlayerDeathBlock,
+    PlayerDeathPoison,
+    PlayerDeathCycle,
     PlayerCardPack,
     EnemyNormal,
+    EnemyNormalGoblin,
+    EnemyNormalSkeleton,
+    EnemyNormalGolem,
+    EnemyNormalBat,
+    EnemyNormalMushroom,
+    EnemyNormalSlime,
     EnemyElite,
     EnemyBoss,
+    EnemyBossCentaurus,
+    EnemyBossPuppet,
+    EnemyBossHydra,
     Neow,
     Merchant,
     TreasureChestClosed,
@@ -27,6 +58,24 @@ namespace AsciiArtLibrary {
 
 // Returns the normalized art block for the requested scene/entity role.
 const std::vector<std::string>& Get(AsciiArtId id);
+
+// Returns the player battle art that matches the selected starter deck archetype.
+const std::vector<std::string>& GetPlayerBattle(CardArchetype archetype);
+
+// Returns the player attack pose that matches the selected starter deck archetype.
+const std::vector<std::string>& GetPlayerAttack(CardArchetype archetype);
+
+// Returns the player defensive/hit pose that matches the selected starter deck archetype.
+const std::vector<std::string>& GetPlayerDefend(CardArchetype archetype);
+
+// Returns the player death pose that matches the selected starter deck archetype.
+const std::vector<std::string>& GetPlayerDeath(CardArchetype archetype);
+
+// Returns one of the large boss monster art variants for a newly spawned boss.
+const std::vector<std::string>& GetRandomEnemyBoss();
+
+// Returns one of the normal monster art variants for a newly spawned monster.
+const std::vector<std::string>& GetRandomEnemyNormal();
 
 // Trims common indentation and blank margins so pasted art is easier to manage.
 std::vector<std::string> Normalize(const std::vector<std::string>& lines);
