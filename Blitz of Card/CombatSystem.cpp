@@ -372,12 +372,14 @@ void CombatSystem::UpdatePassiveTimers(float deltaTimeSec, float timeScale, Comb
 void CombatSystem::ApplyDiscardEffect(const CardData& card, CombatActionResult& result) {
     switch (card.id) {
     case CardLibrary::Id::Refit:
-        if (TryDrawOne(true)) {
-            ++result.cardsDrawn;
-            result.handChanged = true;
+        for (int drawIndex = 0; drawIndex < card.primaryValue; ++drawIndex) {
+            if (TryDrawOne(true)) {
+                ++result.cardsDrawn;
+                result.handChanged = true;
+            }
         }
-        GainEnergy(1);
-        ++result.energyGained;
+        GainEnergy(card.secondaryValue);
+        result.energyGained += card.secondaryValue;
         break;
     default:
         break;
@@ -409,7 +411,7 @@ void CombatSystem::OnCardDiscarded(CardData& discardedCard, CombatActionResult& 
         if (speedAddictionStacks > 0 && enemy != nullptr) {
             while (discardDamageCounter >= 5) {
                 discardDamageCounter -= 5;
-                const int rawDamage = 15 * speedAddictionStacks;
+                const int rawDamage = speedAddictionStacks;
                 const int hpDamage = ApplyDamageToTarget(*enemy, rawDamage);
                 if (hpDamage > 0) {
                     result.enemyHit = true;
@@ -833,11 +835,11 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         ApplyHitToEnemy(card, card.primaryValue + comboBeforeUse, result);
         break;
     case CardLibrary::Id::ComboFinisher:
-        ApplyHitToEnemy(card, comboBeforeUse * 3, result);
+        ApplyHitToEnemy(card, comboBeforeUse * card.primaryValue, result);
         comboCount = 0;
         break;
     case CardLibrary::Id::TimingSteal:
-        attackDelayOnHitSec += 0.5f;
+        attackDelayOnHitSec += 0.5f * static_cast<float>((std::max)(1, card.primaryValue));
         break;
     case CardLibrary::Id::BouncingBlade:
         for (int hitIndex = 0; hitIndex < 3; ++hitIndex) {
@@ -845,16 +847,16 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         }
         break;
     case CardLibrary::Id::ExploitOpening:
-        enemy->vulnerable += 1;
-        result.vulnerableApplied += 1;
+        enemy->vulnerable += card.primaryValue;
+        result.vulnerableApplied += card.primaryValue;
         if (comboBeforeUse >= 5) {
             card.remainingReuseCount = (std::max)(card.remainingReuseCount, 1);
         }
         break;
     case CardLibrary::Id::PressureBreathing:
-        GainPlayerBlock(5, &result);
+        GainPlayerBlock(card.primaryValue, &result);
         if (comboBeforeUse >= 4) {
-            enemy->weak += 1;
+            enemy->weak += card.secondaryValue;
         }
         break;
     case CardLibrary::Id::ComboStance:
@@ -878,13 +880,13 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
 
     case CardLibrary::Id::StrengthTraining:
-        GainPlayerStrength(2, &result);
+        GainPlayerStrength(card.primaryValue, &result);
         break;
     case CardLibrary::Id::CrimsonBreath:
-        strengthOnEnemyAction += 1;
+        strengthOnEnemyAction += card.primaryValue;
         break;
     case CardLibrary::Id::HeavyStrike:
-        ApplyHitToEnemy(card, card.primaryValue + (player->strength * 2), result);
+        ApplyHitToEnemy(card, card.primaryValue + (player->strength * ((std::max)(1, card.secondaryValue) - 1)), result);
         break;
     case CardLibrary::Id::Endure:
         GainPlayerBlock(card.primaryValue, &result);
@@ -904,23 +906,23 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         }
         break;
     case CardLibrary::Id::Stockpile:
-        delayedEnergyGains.push_back({ 5.0f, 3 });
+        delayedEnergyGains.push_back({ static_cast<float>((std::max)(1, card.primaryValue)), card.secondaryValue });
         break;
     case CardLibrary::Id::GiantArm:
         ApplyHitToEnemy(card, card.primaryValue, result);
         break;
     case CardLibrary::Id::Warmup:
-        warmupStrengthAmount += 1;
+        warmupStrengthAmount += (std::max)(1, card.secondaryValue);
         break;
     case CardLibrary::Id::Crush:
         ApplyHitToEnemy(card, card.primaryValue, result);
         enemy->weak += card.secondaryValue;
         break;
     case CardLibrary::Id::BattleInstinct:
-        bonusStrengthGainWhenEnemyAttacks += 1;
+        bonusStrengthGainWhenEnemyAttacks += card.primaryValue;
         break;
     case CardLibrary::Id::BerserkFlow:
-        drawsPerStrengthGain += 1;
+        drawsPerStrengthGain += card.primaryValue;
         break;
     case CardLibrary::Id::LeechBlade: {
         const int dealtHpDamage = ApplyHitToEnemy(card, card.primaryValue, result);
@@ -932,14 +934,14 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         blockDecayActive = true;
         break;
     case CardLibrary::Id::ShieldBash:
-        ApplyHitToEnemy(card, static_cast<int>(std::ceil(static_cast<float>(player->block) * 0.5f)), result);
+        ApplyHitToEnemy(card, static_cast<int>(std::ceil(static_cast<float>(player->block) * (static_cast<float>(card.primaryValue) / 100.0f))), result);
         break;
     case CardLibrary::Id::FirmPosture:
         GainPlayerBlock(card.primaryValue, &result);
         break;
     case CardLibrary::Id::CompressedDefense: {
         const int previousBlock = player->block;
-        player->block = static_cast<int>(std::ceil(static_cast<float>(player->block) * 1.5f));
+        player->block = static_cast<int>(std::ceil(static_cast<float>(player->block) * (static_cast<float>(card.primaryValue) / 100.0f)));
         const int gained = player->block - previousBlock;
         if (gained > 0) {
             result.blockGained += gained;
@@ -957,7 +959,7 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
     }
     case CardLibrary::Id::EvasionMatrix:
-        GainPlayerDexterity(2);
+        GainPlayerDexterity(card.primaryValue);
         break;
     case CardLibrary::Id::Invincible:
         GainPlayerBlock(card.primaryValue, &result);
@@ -975,26 +977,26 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
     }
     case CardLibrary::Id::CounterStance:
-        damageOnBlockGain += 3;
+        damageOnBlockGain += card.primaryValue;
         break;
     case CardLibrary::Id::ShieldSpin:
-        ApplyHitToEnemy(card, static_cast<int>(std::ceil(static_cast<float>(player->block) * 0.5f)), result);
+        ApplyHitToEnemy(card, static_cast<int>(std::ceil(static_cast<float>(player->block) * (static_cast<float>(card.primaryValue) / 100.0f))), result);
         break;
     case CardLibrary::Id::GuardConversion:
-        if (player->block < 10) {
+        if (player->block < card.primaryValue) {
             result.success = false;
             result.message = "Not enough block";
             GainEnergy(result.energySpent);
             result.energySpent = 0;
             return result;
         }
-        player->block -= 10;
-        GainPlayerDexterity(1);
+        player->block -= card.primaryValue;
+        GainPlayerDexterity(card.secondaryValue);
         break;
     case CardLibrary::Id::WallCollapse: {
         const int currentBlock = player->block;
         player->block = 0;
-        ApplyHitToEnemy(card, static_cast<int>(std::ceil(static_cast<float>(currentBlock) * 1.5f)), result);
+        ApplyHitToEnemy(card, static_cast<int>(std::ceil(static_cast<float>(currentBlock) * (static_cast<float>(card.primaryValue) / 100.0f))), result);
         break;
     }
 
@@ -1003,7 +1005,7 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         enemy->poison += card.secondaryValue;
         break;
     case CardLibrary::Id::VenomCoating:
-        poisonOnAttack += 2;
+        poisonOnAttack += card.primaryValue;
         break;
     case CardLibrary::Id::EvasiveStance:
         GainPlayerBlock(card.primaryValue, &result);
@@ -1012,19 +1014,19 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         enemy->poison += card.primaryValue;
         break;
     case CardLibrary::Id::ToxicShield:
-        poisonOnBlockGain += 2;
+        poisonOnBlockGain += card.primaryValue;
         break;
     case CardLibrary::Id::Plague:
-        enemy->poison *= 2;
+        enemy->poison *= (std::max)(1, card.primaryValue);
         break;
     case CardLibrary::Id::Catalyst:
-        enemy->poison = static_cast<int>(std::ceil(static_cast<float>(enemy->poison) * 1.5f));
+        enemy->poison = static_cast<int>(std::ceil(static_cast<float>(enemy->poison) * (static_cast<float>(card.primaryValue) / 100.0f)));
         break;
     case CardLibrary::Id::ToxicSkin:
-        poisonOnBeingHit += 8;
+        poisonOnBeingHit += card.primaryValue;
         break;
     case CardLibrary::Id::SlowDeath:
-        poisonDamageBonusOnEnemyAction += 2;
+        poisonDamageBonusOnEnemyAction += card.primaryValue;
         break;
     case CardLibrary::Id::VenomSlash:
         ApplyHitToEnemy(card, card.primaryValue, result);
@@ -1034,7 +1036,7 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
     case CardLibrary::Id::ParalysisPoison:
         enemy->poison += card.primaryValue;
-        AddCurrentEnemyIntentTime(2.0f);
+        AddCurrentEnemyIntentTime(static_cast<float>(card.secondaryValue));
         break;
     case CardLibrary::Id::AcidDefense:
         if (enemy->poison > 0) {
@@ -1052,7 +1054,7 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
 
     case CardLibrary::Id::FastHands:
-        for (int drawIndex = 0; drawIndex < 2; ++drawIndex) {
+        for (int drawIndex = 0; drawIndex < card.primaryValue; ++drawIndex) {
             if (TryDrawOne(true)) {
                 ++result.cardsDrawn;
             }
@@ -1064,10 +1066,10 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         ApplyHitToEnemy(card, totalBattleDraws + totalBattleDiscards, result);
         break;
     case CardLibrary::Id::TimeThief:
-        IncreaseEnemyIntentBaseInterval(2.0f);
+        IncreaseEnemyIntentBaseInterval(static_cast<float>(card.primaryValue));
         break;
     case CardLibrary::Id::DeckDigging:
-        manualDrawChargesOnEnemyAction += 1;
+        manualDrawChargesOnEnemyAction += card.primaryValue;
         break;
     case CardLibrary::Id::FullRedraw: {
         const int redrawCount = static_cast<int>(hand.size());
@@ -1086,15 +1088,15 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         return result;
     }
     case CardLibrary::Id::SwiftStrike:
-        ApplyHitToEnemy(card, 10, result);
-        GainEnergy(1);
-        ++result.energyGained;
+        ApplyHitToEnemy(card, card.primaryValue, result);
+        GainEnergy(card.secondaryValue);
+        result.energyGained += card.secondaryValue;
         break;
     case CardLibrary::Id::ExplosiveStrike:
-        basicStrikeBonus += 2;
+        basicStrikeBonus += card.primaryValue;
         break;
     case CardLibrary::Id::ExplosiveDefend:
-        basicDefendBonus += 1;
+        basicDefendBonus += card.primaryValue;
         break;
     case CardLibrary::Id::Recharge: {
         const int refillAmount = GetMaxEnergy() - energy;
@@ -1103,12 +1105,12 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
     }
     case CardLibrary::Id::AccelCircuit:
-        drawGaugePercentOnDiscard += 35;
+        drawGaugePercentOnDiscard += card.primaryValue;
         break;
     case CardLibrary::Id::Overload:
         overloadActive = true;
-        extraEnergyOnDiscard += 1;
-        extraDrawsOnDiscard += 1;
+        extraEnergyOnDiscard += card.primaryValue;
+        extraDrawsOnDiscard += card.secondaryValue;
         break;
     case CardLibrary::Id::InstantFortify: {
         const int blockAmount = static_cast<int>(hand.size()) * (card.primaryValue + player->dexterity);
@@ -1132,7 +1134,7 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         return result;
     }
     case CardLibrary::Id::Blossom:
-        ++maxEnergyBonus;
+        maxEnergyBonus += card.primaryValue;
         if (energy > GetMaxEnergy()) {
             energy = GetMaxEnergy();
         }
@@ -1145,14 +1147,14 @@ CombatActionResult CombatSystem::TryUseCard(int handIndex, CombatDropTarget targ
         break;
     }
     case CardLibrary::Id::HyperDraw:
-        drawIntervalMultiplier *= 0.75f;
-        --handLimitModifier;
+        drawIntervalMultiplier *= (std::max)(0.1f, 1.0f - (static_cast<float>(card.primaryValue) / 100.0f));
+        handLimitModifier -= (std::max)(1, card.secondaryValue);
         break;
     case CardLibrary::Id::SpeedAddiction:
-        ++speedAddictionStacks;
+        speedAddictionStacks += card.primaryValue;
         break;
     case CardLibrary::Id::PatternRead:
-        ++energyOnEnemyActionEnd;
+        energyOnEnemyActionEnd += card.primaryValue;
         break;
     default:
         break;

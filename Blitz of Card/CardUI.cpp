@@ -1,6 +1,7 @@
 #include "CardUI.h"
 
 #include "CardArtLibrary.h"
+#include "CardLibrary.h"
 #include "TextLayout.h"
 
 // 카드 렌더링은 폭 계산과 정렬 안정성이 중요해서, 숫자 배치와 줄바꿈을
@@ -38,6 +39,15 @@ std::string GetCardTypeLabel(CardType type) {
     case CardType::Curse:  return u8"저주";
     default:               return u8"미정";
     }
+}
+
+std::string BuildUpgradeBadge(int upgradeLevel) {
+    const int safeLevel = CardLibrary::ClampUpgradeLevel(upgradeLevel);
+    if (safeLevel <= 0) {
+        return "";
+    }
+
+    return "+" + std::to_string(safeLevel);
 }
 
 } // namespace
@@ -127,8 +137,18 @@ void CardUI::Render(ScreenManager& screen) {
     screen.DrawString(
         x,
         y + 1,
-        BuildCardLine(TextLayout::Utf8ToWide("[" + std::to_string(data->cost) + "]"), TextLayout::HorizontalAlign::Left),
+        BuildCardLine(TextLayout::Utf8ToWide(CardLibrary::BuildCostPips(data->cost)), TextLayout::HorizontalAlign::Left),
         color);
+    const std::string upgradeBadge = BuildUpgradeBadge(data->upgradeLevel);
+    if (!upgradeBadge.empty()) {
+        const std::wstring upgradeWide = TextLayout::Utf8ToWide(upgradeBadge);
+        const int upgradeWidth = TextLayout::MeasureDisplayWidth(upgradeWide);
+        const int badgeX = x + 1 + (std::max)(0, kCardInnerWidth - upgradeWidth);
+        const WORD upgradeColor = (data->upgradeLevel >= 2)
+            ? (COLOR_RED | COLOR_GREEN | FOREGROUND_INTENSITY)
+            : COLOR_GREEN;
+        screen.DrawString(badgeX, y + 1, upgradeWide, playable ? upgradeColor : FOREGROUND_INTENSITY);
+    }
     screen.DrawString(x, y + 2, BuildCardLine(L""), color);
     screen.DrawString(x, y + 3, cachedNameLine, color);
     screen.DrawString(x, y + 4, BuildCardLine(L""), color);

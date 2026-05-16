@@ -37,6 +37,15 @@ enum class CardArchetype {
     Cycle
 };
 
+enum class RelicArtId {
+    None,
+    Bloodstone,
+    ShieldGear,
+    AlchemyPouch,
+    GoldenTooth,
+    CrackedCharm
+};
+
 // 카드 데이터 구조체
 struct CardData {
     int id = 0;
@@ -71,6 +80,7 @@ struct CardData {
 // 전투 개체(플레이어, 몬스터) 데이터 구조체
 struct EntityData {
     int id = 0;
+    int visualArtId = 0;
     std::string name;
     int currentHp = 0;
     int maxHp = 0;
@@ -84,6 +94,7 @@ struct EntityData {
 
 struct RelicData {
     int id = 0;
+    int artId = 0;
     std::string name;
     std::string description;
 };

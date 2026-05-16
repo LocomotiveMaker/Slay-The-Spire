@@ -364,6 +364,137 @@ inline void RefreshRuntimeCardText(CardData& card, const CardTextContext* contex
     card.description = BuildRuntimeDescription(card, context);
 }
 
+inline int ClampUpgradeLevel(int upgradeLevel) {
+    return (std::max)(0, (std::min)(2, upgradeLevel));
+}
+
+inline bool HasNumericUpgradeTarget(const CardData& card) {
+    return card.primaryValue != 0 ||
+        card.secondaryValue != 0 ||
+        card.tertiaryValue != 0 ||
+        card.quaternaryValue != 0;
+}
+
+inline bool NeedsManualUpgradeDesign(const CardData& card) {
+    return !HasNumericUpgradeTarget(card) && card.cost <= 1;
+}
+
+inline int BuildUpgradeValueBonus(int value) {
+    const int magnitude = std::abs(value);
+    if (magnitude <= 0) {
+        return 0;
+    }
+    if (magnitude >= 100) {
+        return 25;
+    }
+    if (magnitude >= 20) {
+        return 5;
+    }
+    if (magnitude >= 10) {
+        return 3;
+    }
+    return 1;
+}
+
+inline void ApplyFirstNumericUpgrade(CardData& card) {
+    auto applyBonus = [](int& value) {
+        if (value == 0) {
+            return false;
+        }
+
+        const int direction = (value < 0) ? -1 : 1;
+        value += direction * BuildUpgradeValueBonus(value);
+        return true;
+        };
+
+    // Some cards store a cost or delay before the actual reward number.
+    // Upgrade the number that feels beneficial to the player, not blindly the first field.
+    switch (card.id) {
+    case Id::BloodAccelerate:
+    case Id::Stockpile:
+    case Id::Warmup:
+    case Id::GuardConversion:
+    case Id::RefluxPoison:
+        if (applyBonus(card.secondaryValue)) {
+            return;
+        }
+        break;
+    default:
+        break;
+    }
+
+    int* values[] = {
+        &card.primaryValue,
+        &card.secondaryValue,
+        &card.tertiaryValue,
+        &card.quaternaryValue
+    };
+
+    for (int* value : values) {
+        if (applyBonus(*value)) {
+            return;
+        }
+    }
+}
+
+inline CardData GetEffectiveCardData(const CardData& source, const CardTextContext* context = nullptr) {
+    CardData effective = source;
+    effective.upgradeLevel = ClampUpgradeLevel(source.upgradeLevel);
+    RefreshRuntimeCardText(effective, context);
+    return effective;
+}
+
+inline std::string BuildCostPips(int cost) {
+    if (cost <= 0) {
+        return "0";
+    }
+
+    std::string text;
+    for (int index = 0; index < cost; ++index) {
+        text += u8"◆";
+    }
+    return text;
+}
+
+inline bool CanApplyNextUpgrade(const CardData& card) {
+    const int currentLevel = ClampUpgradeLevel(card.upgradeLevel);
+    if (currentLevel >= 2) {
+        return false;
+    }
+
+    if (HasNumericUpgradeTarget(card)) {
+        return true;
+    }
+
+    return card.cost > 0;
+}
+
+inline bool ApplyNextUpgrade(CardData& card, const CardTextContext* context = nullptr) {
+    const int currentLevel = ClampUpgradeLevel(card.upgradeLevel);
+    if (currentLevel >= 2 || !CanApplyNextUpgrade(card)) {
+        return false;
+    }
+
+    const bool hasNumericUpgrade = HasNumericUpgradeTarget(card);
+
+    if (hasNumericUpgrade && currentLevel == 0) {
+        ApplyFirstNumericUpgrade(card);
+    }
+    else if (card.cost > 0) {
+        --card.cost;
+    }
+    else if (hasNumericUpgrade) {
+        ApplyFirstNumericUpgrade(card);
+    }
+    else {
+        return false;
+    }
+
+    card.upgradeLevel = currentLevel + 1;
+    RefreshRuntimeCardText(card, context);
+    return true;
+}
+
 inline CardData CreateCardById(int id) {
     switch (id) {
     case Id::Strike:

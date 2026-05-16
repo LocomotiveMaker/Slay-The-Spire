@@ -479,7 +479,7 @@ void RenderSpeechBubble(ScreenManager& screen, const Rect& rect, const std::stri
 void RenderCompactCardOffer(ScreenManager& screen, const Rect& rect, const CardData& card, int price, bool sold, bool hovered) {
     const WORD accentColor = sold ? FOREGROUND_INTENSITY : (hovered ? COLOR_YELLOW : GetCardTypeFrameColor(card.type));
     RenderFrameBox(screen, rect, accentColor);
-    screen.DrawString(rect.x + 1, rect.y + 1, TextLayout::AlignToWidth(TextLayout::Utf8ToWide("[" + to_string(card.cost) + "]"), rect.width - 2, TextLayout::HorizontalAlign::Left), accentColor);
+    screen.DrawString(rect.x + 1, rect.y + 1, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(CardLibrary::BuildCostPips(card.cost)), rect.width - 2, TextLayout::HorizontalAlign::Left), accentColor);
     screen.DrawString(rect.x + 1, rect.y + 2, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(card.name), rect.width - 2, TextLayout::HorizontalAlign::Center), sold ? FOREGROUND_INTENSITY : COLOR_WHITE);
 
     const vector<string>& artLines = CardArtLibrary::Get(card);
@@ -782,7 +782,7 @@ vector<string> BuildDeckLines(const RunStateData& run) {
     vector<string> lines;
     lines.reserve(run.deck.size());
     for (const CardData& card : run.deck) {
-        string line = "[" + to_string(card.cost) + "] " + card.name;
+        string line = CardLibrary::BuildCostPips(card.cost) + " " + card.name;
         if (card.upgradeLevel > 0) {
             line += " +" + to_string(card.upgradeLevel);
         }
@@ -816,7 +816,7 @@ string BuildCardTypeText(CardType type) {
 }
 
 string BuildCardSummary(const CardData& card) {
-    string text = "[" + to_string(card.cost) + "] " + card.name;
+    string text = CardLibrary::BuildCostPips(card.cost) + " " + card.name;
     if (card.upgradeLevel > 0) {
         text += " +" + to_string(card.upgradeLevel);
     }
@@ -2274,7 +2274,7 @@ int main(int argc, char* argv[]) {
                         screen.DrawString(
                             previewCardRect.x + 1,
                             previewCardRect.y + 1,
-                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(string("[") + to_string(previewPack.cards[cardIndex].cost) + "]"), previewCardRect.width - 2, TextLayout::HorizontalAlign::Left),
+                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(CardLibrary::BuildCostPips(previewPack.cards[cardIndex].cost)), previewCardRect.width - 2, TextLayout::HorizontalAlign::Left),
                             detailColor);
                         screen.DrawString(
                             previewCardRect.x + 1,
@@ -2376,7 +2376,7 @@ int main(int argc, char* argv[]) {
                             Rect cardRect = { rewardRect.x + 4 + static_cast<int>(choiceIndex) * cardSpacing, cardTop, 22, 14 };
                             RenderFrameBox(screen, cardRect, cardRect.Contains(mouseX, mouseY) ? COLOR_YELLOW : COLOR_WHITE);
                             screen.DrawString(cardRect.x + 2, cardRect.y + 1, rewards.cardChoices[choiceIndex].name, COLOR_WHITE);
-                            screen.DrawString(cardRect.x + 2, cardRect.y + 2, string(u8"코스트 ") + to_string(rewards.cardChoices[choiceIndex].cost), COLOR_YELLOW);
+                            screen.DrawString(cardRect.x + 2, cardRect.y + 2, string(u8"코스트 ") + CardLibrary::BuildCostPips(rewards.cardChoices[choiceIndex].cost), COLOR_YELLOW);
                             RenderWrappedText(screen, cardRect.x + 2, cardRect.y + 4, cardRect.width - 4, rewards.cardChoices[choiceIndex].description, COLOR_WHITE);
 
                             if (cardRect.Contains(mouseX, mouseY) && input.IsLeftClickDown() && run.overlay == RunOverlayType::None) {
@@ -3568,6 +3568,92 @@ int main(int argc, char* argv[]) {
                                 queueMapReturn();
                             }
                         }
+                        else if (run.restRoom.smithMode) {
+                            const Rect smithRect = { screen.GetCenterX() - 42, 13, 84, 20 };
+                            RenderFrameBox(screen, smithRect, COLOR_YELLOW);
+                            RenderPanelTitle(screen, smithRect, u8"제련할 카드 선택", COLOR_YELLOW);
+
+                            const int visibleLineCount = smithRect.height - 8;
+                            if (input.GetWheelDelta() != 0) {
+                                deckScroll -= input.GetWheelDelta();
+                            }
+                            deckScroll = (std::max)(0, (std::min)(deckScroll, (std::max)(0, static_cast<int>(run.deck.size()) - visibleLineCount)));
+
+                            int hoveredDeckIndex = -1;
+                            int upgradeableCount = 0;
+                            for (const CardData& card : run.deck) {
+                                if (CardLibrary::CanApplyNextUpgrade(card)) {
+                                    ++upgradeableCount;
+                                }
+                            }
+
+                            if (upgradeableCount <= 0) {
+                                RenderWrappedText(screen, smithRect.x + 3, smithRect.y + 4, smithRect.width - 6, u8"현재 덱에는 자동 강화 규칙으로 처리할 수 있는 카드가 없습니다.", COLOR_WHITE);
+                            }
+
+                            for (int lineIndex = 0; lineIndex < visibleLineCount && (deckScroll + lineIndex) < static_cast<int>(run.deck.size()); ++lineIndex) {
+                                const int deckIndex = deckScroll + lineIndex;
+                                CardData& deckCard = run.deck[static_cast<size_t>(deckIndex)];
+                                const bool canUpgrade = CardLibrary::CanApplyNextUpgrade(deckCard);
+                                std::string rowText = BuildCardSummary(deckCard);
+                                if (!canUpgrade) {
+                                    rowText += deckCard.upgradeLevel >= 2 ? u8" / 최대 강화" : u8" / 수동 설계 필요";
+                                }
+
+                                const Rect rowRect = { smithRect.x + 3, smithRect.y + 3 + lineIndex, smithRect.width - 6, 1 };
+                                const bool hovered = rowRect.Contains(mouseX, mouseY);
+                                if (hovered) {
+                                    hoveredDeckIndex = deckIndex;
+                                }
+
+                                const WORD rowColor = canUpgrade
+                                    ? (hovered ? COLOR_YELLOW : COLOR_WHITE)
+                                    : FOREGROUND_INTENSITY;
+                                screen.DrawString(
+                                    rowRect.x,
+                                    rowRect.y,
+                                    TextLayout::AlignToWidth(TextLayout::Utf8ToWide(rowText), rowRect.width, TextLayout::HorizontalAlign::Left),
+                                    rowColor);
+
+                                if (canUpgrade && hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
+                                    const std::string beforeName = deckCard.baseName.empty() ? deckCard.name : deckCard.baseName;
+                                    if (CardLibrary::ApplyNextUpgrade(deckCard)) {
+                                        run.restRoom.resultReady = true;
+                                        run.restRoom.smithMode = false;
+                                        run.restRoom.resultText = beforeName + " +" + std::to_string(deckCard.upgradeLevel) + u8" 강화가 완료되었습니다.";
+                                        PlayFixedEffect(audio, L"sfx\\SOTE_SFX_UpgradeCard_v1.ogg", L"sfx_rest_smith", audioAliasCounter, settings.effectsEnabled);
+                                    }
+                                    break;
+                                }
+                            }
+
+                            if (hoveredDeckIndex >= 0 && hoveredDeckIndex < static_cast<int>(run.deck.size())) {
+                                const CardData& hoveredCard = run.deck[static_cast<size_t>(hoveredDeckIndex)];
+                                const Rect previewRect = { smithRect.x + 3, smithRect.y + smithRect.height - 4, smithRect.width - 24, 3 };
+                                std::vector<std::string> previewLines;
+                                previewLines.push_back(hoveredCard.description);
+                                if (CardLibrary::CanApplyNextUpgrade(hoveredCard)) {
+                                    CardData previewCard = hoveredCard;
+                                    CardLibrary::ApplyNextUpgrade(previewCard);
+                                    previewLines.push_back(std::string(u8"강화 후: ") + BuildCardSummary(previewCard));
+                                }
+                                else {
+                                    previewLines.push_back(u8"이 카드는 현재 자동 강화 규칙에서 제외됩니다.");
+                                }
+                                RenderTextBlock(screen, previewRect, previewLines, FOREGROUND_INTENSITY);
+                            }
+
+                            ButtonUI btnBack(smithRect.x + smithRect.width - 18, smithRect.y + smithRect.height - 4, 14, 3, u8"뒤로", COLOR_WHITE, COLOR_YELLOW);
+                            if (run.overlay == RunOverlayType::None) {
+                                btnBack.Update(input);
+                            }
+                            UpdateButtonAudio(btnBack, "rest_smith_back", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            btnBack.Render(screen);
+                            if (btnBack.IsClicked()) {
+                                run.restRoom.smithMode = false;
+                                run.restRoom.noticeText = u8"휴식하거나 카드 한 장을 제련할 수 있습니다.";
+                            }
+                        }
                         else {
                             ButtonUI btnRest(screen.GetCenterX() - 24, 14, 18, 4, u8"휴식", COLOR_WHITE, COLOR_YELLOW);
                             ButtonUI btnSmith(screen.GetCenterX() + 6, 14, 18, 4, u8"제련", COLOR_WHITE, COLOR_YELLOW);
@@ -3589,9 +3675,9 @@ int main(int argc, char* argv[]) {
                                 PlayRandomEffect(audio, sleepJinglePool, L"sfx_rest_heal", audioRng, audioAliasCounter, settings.effectsEnabled);
                             }
                             if (btnSmith.IsClicked()) {
-                                run.restRoom.resultReady = true;
-                                run.restRoom.resultText = u8"제련은 아직 구현되지 않았습니다.";
-                                PlayFixedEffect(audio, L"sfx\\SOTE_SFX_UpgradeCard_v1.ogg", L"sfx_rest_smith", audioAliasCounter, settings.effectsEnabled);
+                                run.restRoom.smithMode = true;
+                                run.restRoom.noticeText = u8"강화할 카드를 선택하세요. 휠로 목록을 이동할 수 있습니다.";
+                                deckScroll = 0;
                             }
                         }
                         break;

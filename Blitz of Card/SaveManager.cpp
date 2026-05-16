@@ -148,7 +148,7 @@ bool ReadCard(std::istream& in, CardData& card) {
 }
 
 void WriteRelic(std::ostream& out, const RelicData& relic) {
-    out << "RELIC " << relic.id << ' ' << std::quoted(relic.name) << ' ' << std::quoted(relic.description) << '\n';
+    out << "RELIC " << relic.id << ' ' << std::quoted(relic.name) << ' ' << std::quoted(relic.description) << ' ' << relic.artId << '\n';
 }
 
 bool ReadRelic(std::istream& in, RelicData& relic) {
@@ -158,6 +158,13 @@ bool ReadRelic(std::istream& in, RelicData& relic) {
     }
 
     in >> relic.id >> std::quoted(relic.name) >> std::quoted(relic.description);
+    std::string lineRemainder;
+    std::getline(in, lineRemainder);
+
+    std::istringstream remainderStream(lineRemainder);
+    if (!(remainderStream >> relic.artId)) {
+        relic.artId = 0;
+    }
     return !in.fail();
 }
 
@@ -386,6 +393,7 @@ void WriteBattleRoom(std::ostream& out, const BattleRoomState& battleRoom) {
         << battleRoom.enemy.vulnerable << ' '
         << battleRoom.enemy.weak << ' '
         << battleRoom.enemy.poison << '\n';
+    out << "BATTLE_ENEMY_ART " << battleRoom.enemy.visualArtId << '\n';
     out << "BATTLE_INTRO " << std::quoted(battleRoom.introText) << '\n';
     WriteBattleReward(out, battleRoom.rewards);
 }
@@ -416,7 +424,18 @@ bool ReadBattleRoom(std::istream& in, BattleRoomState& battleRoom) {
         >> battleRoom.enemy.weak
         >> battleRoom.enemy.poison;
 
-    if (!(in >> tag >> std::quoted(battleRoom.introText)) || tag != "BATTLE_INTRO") {
+    if (!(in >> tag)) {
+        return false;
+    }
+
+    if (tag == "BATTLE_ENEMY_ART") {
+        in >> battleRoom.enemy.visualArtId;
+        if (!(in >> tag)) {
+            return false;
+        }
+    }
+
+    if (tag != "BATTLE_INTRO" || !(in >> std::quoted(battleRoom.introText))) {
         return false;
     }
 
@@ -799,10 +818,19 @@ bool SaveManager::LoadContinueRun(RunStateData& run) {
                     >> run.battleRoom.enemy.weak
                     >> run.battleRoom.enemy.poison;
 
-                in >> tag >> std::quoted(run.battleRoom.introText);
+                if (!(in >> tag)) {
+                    return false;
+                }
+                if (tag == "BATTLE_ENEMY_ART") {
+                    in >> run.battleRoom.enemy.visualArtId;
+                    if (!(in >> tag)) {
+                        return false;
+                    }
+                }
                 if (tag != "BATTLE_INTRO") {
                     return false;
                 }
+                in >> std::quoted(run.battleRoom.introText);
 
                 if (!ReadBattleReward(in, run.battleRoom.rewards)) {
                     return false;

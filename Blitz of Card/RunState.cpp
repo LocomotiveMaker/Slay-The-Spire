@@ -3,6 +3,7 @@
 // @brief      런 생성, 방 상태 준비, 맵 생성 구현부
 // -----------------------------------------------------------------------------
 #include "RunState.h"
+#include "AsciiArtLibrary.h"
 #include "CardLibrary.h"
 #include "ScreenManager.h"
 
@@ -44,9 +45,14 @@ CardData MakeCard(
     return card;
 }
 
-RelicData MakeRelic(int id, const std::string& name, const std::string& description) {
+int ToVisualArtId(AsciiArtId id) {
+    return static_cast<int>(id);
+}
+
+RelicData MakeRelic(int id, RelicArtId artId, const std::string& name, const std::string& description) {
     RelicData relic = {};
     relic.id = id;
+    relic.artId = static_cast<int>(artId);
     relic.name = name;
     relic.description = description;
     return relic;
@@ -67,12 +73,37 @@ std::vector<CardData> BuildGeneralCardPool() {
 
 std::vector<RelicData> BuildRelicPool() {
     return {
-        MakeRelic(3000, u8"검은 혈석", u8"공격 카드의 존재감을 강화하는 임시 유물입니다."),
-        MakeRelic(3001, u8"방패 톱니", u8"방어 카드 위주의 런을 보강하는 임시 유물입니다."),
-        MakeRelic(3002, u8"연금 주머니", u8"포션 획득과 활용을 돕는 임시 유물입니다."),
-        MakeRelic(3003, u8"황금 이빨", u8"골드 수급과 상점 운영을 위한 임시 유물입니다."),
-        MakeRelic(3004, u8"금 간 부적", u8"미지 이벤트와 보상 노드의 밀도를 올리는 임시 유물입니다.")
+        MakeRelic(3000, RelicArtId::Bloodstone, u8"검은 혈석", u8"공격 카드의 존재감을 강화하는 임시 유물입니다."),
+        MakeRelic(3001, RelicArtId::ShieldGear, u8"방패 톱니", u8"방어 카드 위주의 런을 보강하는 임시 유물입니다."),
+        MakeRelic(3002, RelicArtId::AlchemyPouch, u8"연금 주머니", u8"포션 획득과 활용을 돕는 임시 유물입니다."),
+        MakeRelic(3003, RelicArtId::GoldenTooth, u8"황금 이빨", u8"골드 수급과 상점 운영을 위한 임시 유물입니다."),
+        MakeRelic(3004, RelicArtId::CrackedCharm, u8"금 간 부적", u8"미지 이벤트와 보상 노드의 밀도를 올리는 임시 유물입니다.")
     };
+}
+
+int PickNormalEnemyVisualArtId(std::mt19937& rng) {
+    static const std::array<AsciiArtId, 6> kNormalArts = {
+        AsciiArtId::EnemyNormalGoblin,
+        AsciiArtId::EnemyNormalSkeleton,
+        AsciiArtId::EnemyNormalGolem,
+        AsciiArtId::EnemyNormalBat,
+        AsciiArtId::EnemyNormalMushroom,
+        AsciiArtId::EnemyNormalSlime
+    };
+
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(kNormalArts.size()) - 1);
+    return ToVisualArtId(kNormalArts[static_cast<size_t>(dist(rng))]);
+}
+
+int PickBossEnemyVisualArtId(std::mt19937& rng) {
+    static const std::array<AsciiArtId, 3> kBossArts = {
+        AsciiArtId::EnemyBossCentaurus,
+        AsciiArtId::EnemyBossPuppet,
+        AsciiArtId::EnemyBossHydra
+    };
+
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(kBossArts.size()) - 1);
+    return ToVisualArtId(kBossArts[static_cast<size_t>(dist(rng))]);
 }
 
 std::vector<PotionData> BuildPotionPool() {
@@ -200,16 +231,22 @@ void InitializeShopRoom(RunStateData& run) {
     }
 }
 
-EntityData BuildEnemyTemplateForRoom(RunNodeType type) {
+EntityData BuildEnemyTemplateForRoom(RunNodeType type, std::mt19937& rng) {
+    EntityData enemy = {};
     switch (type) {
     case RunNodeType::Elite:
-        return { 9100, u8"수호 슬라임", 72, 72, 0, 1, 0, 0, 0, 0 };
+        enemy = { 9100, ToVisualArtId(AsciiArtId::EnemyElite), u8"수호 슬라임", 72, 72, 0, 1, 0, 0, 0, 0 };
+        break;
     case RunNodeType::Boss:
-        return { 9200, u8"수호자 프로토타입", 130, 130, 0, 2, 0, 0, 0, 0 };
+        enemy = { 9200, PickBossEnemyVisualArtId(rng), u8"수호자 프로토타입", 130, 130, 0, 2, 0, 0, 0, 0 };
+        break;
     case RunNodeType::Battle:
     default:
-        return { 9000, u8"훈련용 슬라임", 48, 48, 0, 0, 0, 0, 0, 0 };
+        enemy = { 9000, PickNormalEnemyVisualArtId(rng), u8"훈련용 슬라임", 48, 48, 0, 0, 0, 0, 0, 0 };
+        break;
     }
+
+    return enemy;
 }
 
 void InitializeBattleRoom(RunStateData& run) {
@@ -219,7 +256,8 @@ void InitializeBattleRoom(RunStateData& run) {
 
     run.battleRoom = {};
     run.battleRoom.initialized = true;
-    run.battleRoom.enemy = BuildEnemyTemplateForRoom(run.currentRoomType);
+    std::mt19937 rng = MakeRoomRng(run, 101);
+    run.battleRoom.enemy = BuildEnemyTemplateForRoom(run.currentRoomType, rng);
 
     switch (run.currentRoomType) {
     case RunNodeType::Elite:
@@ -242,7 +280,7 @@ void InitializeRestRoom(RunStateData& run) {
 
     run.restRoom = {};
     run.restRoom.initialized = true;
-    run.restRoom.noticeText = u8"휴식은 즉시 구현되어 있고, 강화는 다음 단계에서 실제 효과를 붙일 예정입니다.";
+    run.restRoom.noticeText = u8"휴식하거나 카드 한 장을 제련할 수 있습니다.";
 }
 
 void InitializeTreasureRoom(RunStateData& run) {
@@ -1040,7 +1078,7 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
     run.roomResolved = false;
     run.currentRoomType = RunNodeType::Battle;
     run.currentRoomResult = RunNodeResultType::None;
-    run.player = { 0, u8"아이언클래드", 80, 80, 0, 0, 0, 0, 0, 0 };
+    run.player = { 0, 0, u8"아이언클래드", 80, 80, 0, 0, 0, 0, 0, 0 };
     run.playerName = run.player.name;
     run.selectedCardPackTitle.clear();
     run.selectedCardPackArchetype = CardArchetype::None;
@@ -1048,7 +1086,7 @@ void CreateNewRun(RunStateData& run, std::uint32_t seed, int screenWidth, int sc
     run.nodeEntrySnapshot = {};
     run.currentRoomSummaryTitle.clear();
     run.currentRoomSummaryText.clear();
-    run.relics.push_back(MakeRelic(1, u8"불타는 피", u8"전투 종료 후 체력을 6 회복합니다."));
+    run.relics.push_back(MakeRelic(1, RelicArtId::Bloodstone, u8"불타는 피", u8"전투 종료 후 체력을 6 회복합니다."));
     run.potions.push_back(MakePotion(2, u8"회복 포션", u8"체력을 소량 회복합니다.", false));
 
     GenerateRunMap(run, screenWidth, screenHeight);

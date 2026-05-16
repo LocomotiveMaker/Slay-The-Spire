@@ -27,11 +27,35 @@ CardArchetype ResolvePlayerArchetype(const EntityData* data) {
     return static_cast<CardArchetype>(archetypeValue);
 }
 
+const std::vector<std::string>* TryResolveExplicitEnemyArt(int visualArtId) {
+    switch (static_cast<AsciiArtId>(visualArtId)) {
+    case AsciiArtId::EnemyNormalGoblin:
+    case AsciiArtId::EnemyNormalSkeleton:
+    case AsciiArtId::EnemyNormalGolem:
+    case AsciiArtId::EnemyNormalBat:
+    case AsciiArtId::EnemyNormalMushroom:
+    case AsciiArtId::EnemyNormalSlime:
+    case AsciiArtId::EnemyElite:
+    case AsciiArtId::EnemyBossCentaurus:
+    case AsciiArtId::EnemyBossPuppet:
+    case AsciiArtId::EnemyBossHydra:
+        return &AsciiArtLibrary::Get(static_cast<AsciiArtId>(visualArtId));
+    default:
+        return nullptr;
+    }
+}
+
 // Current combat art routing is intentionally simple so shared placeholder art
 // can be swapped without touching the rest of the combat UI.
 const std::vector<std::string>& ResolveEntityArt(const EntityData* data, bool isPlayer) {
     if (isPlayer) {
         return AsciiArtLibrary::GetPlayerBattle(ResolvePlayerArchetype(data));
+    }
+
+    if (data != nullptr) {
+        if (const std::vector<std::string>* explicitArt = TryResolveExplicitEnemyArt(data->visualArtId)) {
+            return *explicitArt;
+        }
     }
 
     // Temporary convention: 9200+ means boss art.

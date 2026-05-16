@@ -175,6 +175,7 @@ struct ShopRoomState {
 struct RestRoomState {
     bool initialized = false;
     bool resultReady = false;
+    bool smithMode = false;
     std::string noticeText;
     std::string resultText;
 };
