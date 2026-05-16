@@ -187,6 +187,7 @@ if exist "$(ProjectDir)Assets\AsciiArt" xcopy /Y /I /E "$(ProjectDir)Assets\Asci
     <ClCompile Include="MapRenderer.cpp" />
     <ClCompile Include="ModalPopupUI.cpp" />
     <ClCompile Include="ProgressBarUI.cpp" />
+    <ClCompile Include="RelicArtLibrary.cpp" />
     <ClCompile Include="RunState.cpp" />
     <ClCompile Include="SaveManager.cpp" />
     <ClCompile Include="ScreenManager.cpp" />
@@ -210,6 +211,7 @@ if exist "$(ProjectDir)Assets\AsciiArt" xcopy /Y /I /E "$(ProjectDir)Assets\Asci
     <ClInclude Include="MapRenderer.h" />
     <ClInclude Include="ModalPopupUI.h" />
     <ClInclude Include="ProgressBarUI.h" />
+    <ClInclude Include="RelicArtLibrary.h" />
     <ClInclude Include="RunState.h" />
     <ClInclude Include="SaveManager.h" />
     <ClInclude Include="ScreenManager.h" />

@@ -445,15 +445,8 @@ inline CardData GetEffectiveCardData(const CardData& source, const CardTextConte
 }
 
 inline std::string BuildCostPips(int cost) {
-    if (cost <= 0) {
-        return "0";
-    }
-
-    std::string text;
-    for (int index = 0; index < cost; ++index) {
-        text += u8"◆";
-    }
-    return text;
+    // Keep the helper name for compatibility, but return to the clearer [n] display.
+    return "[" + std::to_string((std::max)(0, cost)) + "]";
 }
 
 inline bool CanApplyNextUpgrade(const CardData& card) {

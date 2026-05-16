@@ -80,6 +80,7 @@ EntityUI::EntityUI(int x, int y, EntityData* entityData, bool playerEntity)
     isTargeted(false),
     hitAnimationTimerSec(0.0f),
     attackAnimationTimerSec(0.0f),
+    defendAnimationTimerSec(0.0f),
     anchorCenterX(x),
     anchorBottomY(y),
     artWidth(0),
@@ -107,7 +108,7 @@ const std::vector<std::string>& EntityUI::ResolveCurrentArt() const {
         return AsciiArtLibrary::GetPlayerDeath(playerArchetype);
     }
 
-    if (hitAnimationTimerSec > 0.0f) {
+    if (hitAnimationTimerSec > 0.0f || defendAnimationTimerSec > 0.0f) {
         return AsciiArtLibrary::GetPlayerDefend(playerArchetype);
     }
 
@@ -146,12 +147,20 @@ void EntityUI::TriggerHitAnimation() {
     hitAnimationTimerSec = 0.5f;
 }
 
-void EntityUI::TriggerAttackAnimation() {
+void EntityUI::TriggerAttackAnimation(float durationSec) {
     if (!isPlayer) {
         return;
     }
 
-    attackAnimationTimerSec = 0.5f;
+    attackAnimationTimerSec = (std::max)(0.05f, durationSec);
+}
+
+void EntityUI::TriggerDefendAnimation(float durationSec) {
+    if (!isPlayer) {
+        return;
+    }
+
+    defendAnimationTimerSec = (std::max)(0.05f, durationSec);
 }
 
 void EntityUI::SetAnchorBottomCenter(int centerX, int bottomY) {
@@ -171,6 +180,9 @@ void EntityUI::UpdateAnimation(float deltaTimeSec) {
     }
     if (attackAnimationTimerSec > 0.0f) {
         attackAnimationTimerSec = (std::max)(0.0f, attackAnimationTimerSec - deltaTimeSec);
+    }
+    if (defendAnimationTimerSec > 0.0f) {
+        defendAnimationTimerSec = (std::max)(0.0f, defendAnimationTimerSec - deltaTimeSec);
     }
 }
 

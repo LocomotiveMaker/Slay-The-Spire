@@ -16,6 +16,7 @@ private:
     bool isTargeted;
     float hitAnimationTimerSec;
     float attackAnimationTimerSec;
+    float defendAnimationTimerSec;
     int anchorCenterX;
     int anchorBottomY;
     int artWidth;
@@ -35,7 +36,8 @@ public:
 
     void SetTargeted(bool state);
     void TriggerHitAnimation();
-    void TriggerAttackAnimation();
+    void TriggerAttackAnimation(float durationSec = 1.0f);
+    void TriggerDefendAnimation(float durationSec = 1.0f);
     void SetAnchorBottomCenter(int centerX, int bottomY);
     int GetArtCenterX() const { return anchorCenterX; }
     int GetArtTopY() const { return anchorBottomY - artHeight + 1; }

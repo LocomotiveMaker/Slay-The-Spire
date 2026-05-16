@@ -23,6 +23,7 @@
 #include "EntityUI.h"
 #include "InputManager.h"
 #include "MapRenderer.h"
+#include "RelicArtLibrary.h"
 #include "RunState.h"
 #include "SaveManager.h"
 #include "ScreenManager.h"
@@ -671,6 +672,174 @@ void RenderPanelTitle(ScreenManager& screen, const Rect& rect, const string& tit
         color);
 }
 
+constexpr int kRelicPanelY = 4;
+constexpr int kRelicPanelHandleWidth = 7;
+constexpr int kRelicPanelHeight = 20;
+constexpr int kRelicPanelCellWidth = 9;
+constexpr int kRelicPanelCellHeight = 5;
+
+float MoveTowards(float current, float target, float maxDelta) {
+    if (std::fabs(target - current) <= maxDelta) {
+        return target;
+    }
+    return current + ((target > current) ? maxDelta : -maxDelta);
+}
+
+Rect GetRelicPanelOpenRect(int screenWidth, int screenHeight) {
+    const int width = (std::min)(44, (std::max)(32, screenWidth / 4));
+    const int height = (std::min)(kRelicPanelHeight, (std::max)(14, screenHeight - kRelicPanelY - 4));
+    return { 0, kRelicPanelY, width, height };
+}
+
+Rect GetRelicPanelBodyRect(int screenWidth, int screenHeight, float progress) {
+    const Rect openRect = GetRelicPanelOpenRect(screenWidth, screenHeight);
+    const float eased = EaseOutCubic(progress);
+    return {
+        -openRect.width + LerpInt(0, openRect.width, eased),
+        kRelicPanelY,
+        openRect.width,
+        openRect.height
+    };
+}
+
+Rect GetRelicPanelHandleRect(const Rect& bodyRect) {
+    return {
+        bodyRect.x + bodyRect.width,
+        bodyRect.y,
+        kRelicPanelHandleWidth,
+        bodyRect.height
+    };
+}
+
+Rect GetRelicPanelHitRect(const Rect& bodyRect, const Rect& handleRect) {
+    const int left = (std::min)(bodyRect.x, handleRect.x);
+    const int right = (std::max)(bodyRect.x + bodyRect.width, handleRect.x + handleRect.width);
+    return {
+        left,
+        bodyRect.y,
+        right - left,
+        bodyRect.height
+    };
+}
+
+void UpdateRelicPanelInteraction(
+    InputManager& input,
+    int mouseX,
+    int mouseY,
+    int screenWidth,
+    int screenHeight,
+    float deltaTimeSec,
+    bool inputAllowed,
+    float& panelProgress,
+    bool& pinnedOpen,
+    bool& dragging,
+    int& dragStartX,
+    int& dragOriginX,
+    float& dragStartProgress,
+    bool& consumesInput) {
+    const Rect bodyRect = GetRelicPanelBodyRect(screenWidth, screenHeight, panelProgress);
+    const Rect handleRect = GetRelicPanelHandleRect(bodyRect);
+    const Rect hitRect = GetRelicPanelHitRect(bodyRect, handleRect);
+    const bool handleHovered = handleRect.Contains(mouseX, mouseY);
+    const bool panelHovered = hitRect.Contains(mouseX, mouseY);
+    consumesInput = inputAllowed && (dragging || handleHovered || (panelProgress > 0.95f && panelHovered));
+
+    if (!inputAllowed) {
+        dragging = false;
+        return;
+    }
+
+    if (input.IsLeftClickDown() && handleHovered) {
+        dragging = true;
+        dragStartX = mouseX;
+        dragOriginX = mouseX;
+        dragStartProgress = panelProgress;
+    }
+
+    if (dragging) {
+        const Rect openRect = GetRelicPanelOpenRect(screenWidth, screenHeight);
+        const int travel = (std::max)(1, openRect.width);
+        panelProgress = Clamp01(dragStartProgress + static_cast<float>(mouseX - dragStartX) / static_cast<float>(travel));
+
+        if (input.IsLeftClickUp()) {
+            const bool treatedAsClick = std::abs(mouseX - dragOriginX) <= 2;
+            pinnedOpen = treatedAsClick ? !pinnedOpen : (panelProgress >= 0.5f);
+            dragging = false;
+        }
+        return;
+    }
+
+    const float target = pinnedOpen ? 1.0f : 0.0f;
+    panelProgress = MoveTowards(panelProgress, target, deltaTimeSec * 8.0f);
+}
+
+void RenderRelicPanel(
+    ScreenManager& screen,
+    const std::vector<RelicData>& relics,
+    int mouseX,
+    int mouseY,
+    float progress,
+    bool interactionAllowed,
+    const std::function<void(const std::vector<std::string>&)>& showTooltipAtMouse) {
+    const Rect bodyRect = GetRelicPanelBodyRect(screen.GetWidth(), screen.GetHeight(), progress);
+    const Rect handleRect = GetRelicPanelHandleRect(bodyRect);
+    const bool handleHovered = interactionAllowed && handleRect.Contains(mouseX, mouseY);
+    const WORD frameColor = handleHovered ? COLOR_YELLOW : COLOR_WHITE;
+
+    if (bodyRect.x + bodyRect.width > 0) {
+        RenderFrameBox(screen, bodyRect, frameColor);
+        if (progress > 0.28f) {
+            RenderPanelTitle(screen, bodyRect, u8"유물 보관함", COLOR_YELLOW);
+            screen.DrawString(bodyRect.x + 2, bodyRect.y + bodyRect.height - 2, u8"탭을 드래그/클릭", FOREGROUND_INTENSITY);
+        }
+    }
+
+    RenderFrameBox(screen, handleRect, frameColor);
+    const std::string arrowText = progress >= 0.65f ? "<-" : "->";
+    screen.DrawString(
+        handleRect.x + 1,
+        handleRect.y + (handleRect.height / 2),
+        TextLayout::AlignToWidth(TextLayout::Utf8ToWide(arrowText), handleRect.width - 2, TextLayout::HorizontalAlign::Center),
+        frameColor);
+
+    if (progress < 0.35f || bodyRect.width < 18 || bodyRect.height < 10) {
+        return;
+    }
+
+    const int top = bodyRect.y + 4;
+    const int bottomLimit = bodyRect.y + bodyRect.height - 3;
+    const int rowsPerColumn = (std::max)(1, (bottomLimit - top + 1) / kRelicPanelCellHeight);
+
+    for (size_t index = 0; index < relics.size(); ++index) {
+        const int column = static_cast<int>(index) / rowsPerColumn;
+        const int row = static_cast<int>(index) % rowsPerColumn;
+        const int cellX = bodyRect.x + bodyRect.width - 2 - kRelicPanelCellWidth - (column * kRelicPanelCellWidth);
+        const int cellY = top + (row * kRelicPanelCellHeight);
+        const Rect cellRect = { cellX, cellY, kRelicPanelCellWidth, kRelicPanelCellHeight };
+
+        if (!RectFitsInside(bodyRect, cellRect)) {
+            continue;
+        }
+
+        const bool hovered = interactionAllowed && cellRect.Contains(mouseX, mouseY);
+        const WORD cellColor = hovered ? COLOR_YELLOW : COLOR_WHITE;
+        RenderFrameBox(screen, cellRect, cellColor);
+
+        const std::vector<std::string>& artLines = RelicArtLibrary::Get(relics[index]);
+        for (int artIndex = 0; artIndex < 3 && artIndex < static_cast<int>(artLines.size()); ++artIndex) {
+            screen.DrawString(
+                cellRect.x + 1,
+                cellRect.y + 1 + artIndex,
+                TextLayout::AlignToWidth(TextLayout::Utf8ToWide(artLines[static_cast<size_t>(artIndex)]), cellRect.width - 2, TextLayout::HorizontalAlign::Center),
+                cellColor);
+        }
+
+        if (hovered) {
+            showTooltipAtMouse(BuildRelicTooltipLines(relics[index]));
+        }
+    }
+}
+
 void RenderWrappedText(ScreenManager& screen, int x, int y, int width, const string& text, WORD color) {
     const TextLayout::WrappedText wrapped = TextLayout::WrapUtf8(text, width);
     for (size_t index = 0; index < wrapped.lines.size(); ++index) {
@@ -1178,6 +1347,12 @@ int main(int argc, char* argv[]) {
     bool lastShopUiOpen = false;
     bool lastShopRemoveMode = false;
     bool neowVoicePlayed = false;
+    float relicPanelProgress = 0.0f;
+    bool relicPanelPinnedOpen = false;
+    bool relicPanelDragging = false;
+    int relicPanelDragStartX = 0;
+    int relicPanelDragOriginX = 0;
+    float relicPanelDragStartProgress = 0.0f;
     const std::vector<std::wstring> uiHoverPool = { L"sfx\\SOTE_SFX_UIHover_v2.wav" };
     const std::vector<std::wstring> uiClickPool = { L"sfx\\SOTE_SFX_UIClick_1_v2.wav", L"sfx\\SOTE_SFX_UIClick_2_v2.wav" };
     const std::vector<std::wstring> cardSelectPool = { L"sfx\\SOTE_SFX_CardSelect_v2.ogg" };
@@ -2014,6 +2189,40 @@ int main(int argc, char* argv[]) {
                 tooltipClaimedThisFrame = true;
                 };
 
+            const bool relicPanelInputAllowed =
+                (run.overlay != RunOverlayType::Settings &&
+                 run.overlay != RunOverlayType::Confirm &&
+                 run.overlay != RunOverlayType::Ending);
+            bool relicPanelConsumesInput = false;
+            UpdateRelicPanelInteraction(
+                input,
+                mouseX,
+                mouseY,
+                screen.GetWidth(),
+                screen.GetHeight(),
+                deltaTimeSec,
+                relicPanelInputAllowed,
+                relicPanelProgress,
+                relicPanelPinnedOpen,
+                relicPanelDragging,
+                relicPanelDragStartX,
+                relicPanelDragOriginX,
+                relicPanelDragStartProgress,
+                relicPanelConsumesInput);
+            const bool relicPanelUnderTopModal =
+                (run.overlay == RunOverlayType::Settings || run.overlay == RunOverlayType::Confirm);
+            const bool relicPanelHidden = (run.overlay == RunOverlayType::Ending);
+            const auto renderRelicPanelLayer = [&](bool allowInteraction) {
+                RenderRelicPanel(
+                    screen,
+                    run.relics,
+                    mouseX,
+                    mouseY,
+                    relicPanelProgress,
+                    allowInteraction,
+                    showTooltipAtMouse);
+                };
+
             const string hpText = string(u8"체력: ") + to_string(run.player.currentHp) + "/" + to_string(run.player.maxHp);
             const string goldText = string(u8"골드: ") + to_string(run.gold);
             const string floorText = string(u8"층수: ") + to_string((std::max)(1, run.currentFloor));
@@ -2095,13 +2304,19 @@ int main(int argc, char* argv[]) {
             btnSettings.Render(screen);
 
             if (run.scene == RunSceneType::CardPackSelect) {
-                const bool cardPackInputAllowed = (run.overlay == RunOverlayType::None);
+                const bool cardPackInputAllowed = (run.overlay == RunOverlayType::None && !relicPanelConsumesInput);
                 if (!neowVoicePlayed) {
                     PlayRandomEffect(audio, neowVoicePool, L"vo_neow_intro", audioRng, audioAliasCounter, settings.effectsEnabled);
                     neowVoicePlayed = true;
                 }
                 const std::vector<int> offeredPackIndices = BuildStarterPackOfferIndices(run.seed, static_cast<int>(starterPacks.size()), 3);
-                const std::vector<std::string>& playerCardPackArt = AsciiArtLibrary::Get(AsciiArtId::PlayerCardPack);
+                const CardArchetype selectedPreviewArchetype =
+                    (run.selectedStarterPackIndex >= 0 && run.selectedStarterPackIndex < static_cast<int>(starterPacks.size()))
+                    ? starterPacks[static_cast<size_t>(run.selectedStarterPackIndex)].archetype
+                    : CardArchetype::None;
+                const std::vector<std::string>& playerCardPackArt = (selectedPreviewArchetype == CardArchetype::None)
+                    ? AsciiArtLibrary::Get(AsciiArtId::PlayerCardPack)
+                    : AsciiArtLibrary::GetPlayerBattle(selectedPreviewArchetype);
                 const std::vector<std::string>& neowArt = AsciiArtLibrary::Get(AsciiArtId::Neow);
                 const Rect playerArtClip = { 2, 7, 34, screen.GetHeight() - 12 };
                 const Rect neowArtClip = {
@@ -2806,7 +3021,7 @@ int main(int argc, char* argv[]) {
                             const int totalHandWidth = cardCount > 0 ? (cardWidth + (cardCount - 1) * cardSpacing) : 0;
                             const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
                             const int handBaseY = screen.GetHeight() - 15 - kCombatHandRaiseRows;
-                            const bool allowCardInteraction = (run.overlay == RunOverlayType::None);
+                            const bool allowCardInteraction = (run.overlay == RunOverlayType::None && !relicPanelConsumesInput);
 
                             const auto recenterHandLayout = [&]() {
                                 handLayoutXs.clear();
@@ -2880,7 +3095,7 @@ int main(int argc, char* argv[]) {
                                 targetingArrow.SetActive(false);
                             }
 
-                            if (draggedHandIndex < 0 && input.IsLeftClickDown() && hoveredHandIndex >= 0 && run.overlay == RunOverlayType::None) {
+                            if (draggedHandIndex < 0 && input.IsLeftClickDown() && hoveredHandIndex >= 0 && allowCardInteraction) {
                                 draggedHandIndex = hoveredHandIndex;
                             }
 
@@ -2954,7 +3169,7 @@ int main(int argc, char* argv[]) {
                                 enemyEntityUi->Update(input);
                             }
 
-                            if (run.overlay == RunOverlayType::None) {
+                            if (allowCardInteraction) {
                                 for (ButtonUI& potionButton : potionButtons) {
                                     potionButton.Update(input);
                                 }
@@ -2997,7 +3212,7 @@ int main(int argc, char* argv[]) {
                                 }
                             }
 
-                            if (draggedHandIndex >= 0 && input.IsLeftClickUp() && run.overlay == RunOverlayType::None) {
+                            if (draggedHandIndex >= 0 && input.IsLeftClickUp() && allowCardInteraction) {
                                 bool actionSucceeded = false;
                                 if (dropTarget == CombatDropTarget::DiscardPile) {
                                     CombatActionResult actionResult = combatSystem->TryDiscardCard(draggedHandIndex);
@@ -3022,6 +3237,8 @@ int main(int argc, char* argv[]) {
                                     CombatActionResult actionResult = combatSystem->TryUseCard(draggedHandIndex, actionTarget);
                                     actionSucceeded = actionResult.success;
                                     if (actionResult.success) {
+                                        const float poseSpeedScale = (std::max)(0.25f, combatSystem->GetSpeedMultiplier() * (settings.gameSpeedPercent / 100.0f));
+                                        const float playerPoseDurationSec = 1.0f / poseSpeedScale;
                                         ++globalStats.totalCardsUsed;
                                         forceRecenterHandLayout = true;
                                         if (actionResult.usedPowerCard) {
@@ -3031,8 +3248,8 @@ int main(int argc, char* argv[]) {
                                         if (enemyEntityUi && actionResult.enemyHit) {
                                             enemyEntityUi->TriggerHitAnimation();
                                         }
-                                        if (playerEntityUi && actionResult.enemyHit) {
-                                            playerEntityUi->TriggerAttackAnimation();
+                                        if (playerEntityUi && actionResult.enemyHit && playedCard.type == CardType::Attack) {
+                                            playerEntityUi->TriggerAttackAnimation(playerPoseDurationSec);
                                         }
                                         if (playerEntityUi && actionResult.playerHit) {
                                             playerEntityUi->TriggerHitAnimation();
@@ -3058,6 +3275,9 @@ int main(int argc, char* argv[]) {
                                             }
                                         }
                                         if (run.player.block > playerBeforeAction.block) {
+                                            if (playerEntityUi && playedCard.type != CardType::Attack) {
+                                                playerEntityUi->TriggerDefendAnimation(playerPoseDurationSec);
+                                            }
                                             PlayRandomEffect(audio, gainDefensePool, L"sfx_gain_block", audioRng, audioAliasCounter, settings.effectsEnabled);
                                         }
                                         if (run.player.strength > playerBeforeAction.strength) {
@@ -3821,6 +4041,10 @@ int main(int argc, char* argv[]) {
                 mapRenderer.ClearViewport();
             }
 
+            if (!relicPanelHidden && relicPanelUnderTopModal) {
+                renderRelicPanelLayer(false);
+            }
+
             if (run.overlay == RunOverlayType::Map) {
                 const Rect overlayRect = { 6, 5, screen.GetWidth() - 12, screen.GetHeight() - 10 };
                 const Rect mapViewport = { overlayRect.x + 2, overlayRect.y + 3, overlayRect.width - 4, overlayRect.height - 7 };
@@ -3840,12 +4064,14 @@ int main(int argc, char* argv[]) {
                 }
 
                 mapRenderer.SetViewport(mapViewport.x, mapViewport.y, mapViewport.width, mapViewport.height);
-                mapRenderer.Update(input);
+                if (!relicPanelConsumesInput) {
+                    mapRenderer.Update(input);
+                }
                 mapRenderer.Render(screen);
 
                 int hoveredNodeId = -1;
                 vector<string> tooltipLines;
-                if (mapRenderer.TryGetHoveredNodeId(mouseX, mouseY, hoveredNodeId) && mapRenderer.TryGetNodeTooltip(mouseX, mouseY, tooltipLines)) {
+                if (!relicPanelConsumesInput && mapRenderer.TryGetHoveredNodeId(mouseX, mouseY, hoveredNodeId) && mapRenderer.TryGetNodeTooltip(mouseX, mouseY, tooltipLines)) {
                     if (hoveredNodeId >= 0 && hoveredNodeId != lastHoveredMapNodeId) {
                         PlayRandomEffect(audio, mapHoverPool, L"sfx_map_hover", audioRng, audioAliasCounter, settings.effectsEnabled);
                     }
@@ -3876,7 +4102,7 @@ int main(int argc, char* argv[]) {
                 RenderPanelTitle(screen, overlayRect, u8"현재 덱", COLOR_YELLOW);
 
                 vector<string> deckLines = BuildDeckLines(run);
-                if (input.GetWheelDelta() != 0) {
+                if (!relicPanelConsumesInput && input.GetWheelDelta() != 0) {
                     deckScroll -= input.GetWheelDelta();
                 }
 
@@ -4028,6 +4254,10 @@ int main(int argc, char* argv[]) {
                         transitionToTitle();
                     }
                 }
+            }
+
+            if (!relicPanelHidden && !relicPanelUnderTopModal) {
+                renderRelicPanelLayer(relicPanelInputAllowed);
             }
 
             if (!tooltipClaimedThisFrame && run.overlay != RunOverlayType::Map) {
