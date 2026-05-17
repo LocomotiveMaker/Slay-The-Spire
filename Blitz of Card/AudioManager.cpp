@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <vector>
 
 #pragma comment(lib, "winmm.lib")
 
@@ -160,6 +161,10 @@ void AudioManager::SetVolumes(int master, int bgm, int sfx) {
 }
 
 void AudioManager::PlayEffect(const std::wstring& filename, const std::wstring& alias, bool loop) {
+    PlayEffectWithSpeed(filename, alias, 1000, loop);
+}
+
+void AudioManager::PlayEffectWithSpeed(const std::wstring& filename, const std::wstring& alias, int speedPermille, bool loop) {
     const std::wstring fullPath = ResolveAudioPath(filename);
     if (fullPath.empty()) {
         return;
@@ -170,6 +175,10 @@ void AudioManager::PlayEffect(const std::wstring& filename, const std::wstring& 
 
     const std::wstring openCommand = L"open \"" + fullPath + L"\" type mpegvideo alias " + alias;
     mciSendStringW(openCommand.c_str(), nullptr, 0, nullptr);
+
+    const int safeSpeed = (std::max)(500, (std::min)(2000, speedPermille));
+    const std::wstring speedCommand = L"set " + alias + L" speed " + std::to_wstring(safeSpeed);
+    mciSendStringW(speedCommand.c_str(), nullptr, 0, nullptr);
 
     const std::wstring playCommand = L"play " + alias + (loop ? L" repeat" : L" from 0");
     mciSendStringW(playCommand.c_str(), nullptr, 0, nullptr);

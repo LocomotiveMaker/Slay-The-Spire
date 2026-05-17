@@ -318,6 +318,13 @@ void PlayFixedEffect(AudioManager& audio, const std::wstring& filename, const st
     audio.PlayEffect(filename, loop ? aliasBase : BuildRotatingAudioAlias(aliasBase, aliasCounter), loop);
 }
 
+void PlayFixedEffectWithSpeed(AudioManager& audio, const std::wstring& filename, const std::wstring& aliasBase, int& aliasCounter, bool enabled, int speedPermille) {
+    if (!enabled || filename.empty()) {
+        return;
+    }
+    audio.PlayEffectWithSpeed(filename, BuildRotatingAudioAlias(aliasBase, aliasCounter), speedPermille);
+}
+
 void StopLoopEffect(AudioManager& audio, const std::wstring& aliasBase) {
     audio.StopEffect(aliasBase);
 }
@@ -674,7 +681,8 @@ void RenderPanelTitle(ScreenManager& screen, const Rect& rect, const string& tit
 
 constexpr int kRelicPanelY = 4;
 constexpr int kRelicPanelHandleWidth = 7;
-constexpr int kRelicPanelHeight = 20;
+constexpr int kRelicPanelHandleHeight = 10;
+constexpr int kRelicPanelHeight = 30;
 constexpr int kRelicPanelCellWidth = 9;
 constexpr int kRelicPanelCellHeight = 5;
 
@@ -703,11 +711,12 @@ Rect GetRelicPanelBodyRect(int screenWidth, int screenHeight, float progress) {
 }
 
 Rect GetRelicPanelHandleRect(const Rect& bodyRect) {
+    const int handleHeight = (std::max)(6, (std::min)(kRelicPanelHandleHeight, bodyRect.height));
     return {
         bodyRect.x + bodyRect.width,
         bodyRect.y,
         kRelicPanelHandleWidth,
-        bodyRect.height
+        handleHeight
     };
 }
 
@@ -773,6 +782,23 @@ void UpdateRelicPanelInteraction(
     panelProgress = MoveTowards(panelProgress, target, deltaTimeSec * 8.0f);
 }
 
+void RenderRelicPanelHandle(ScreenManager& screen, const Rect& rect, WORD color, bool connectedToBody) {
+    if (rect.width < 3 || rect.height < 3) {
+        return;
+    }
+    if (!connectedToBody) {
+        RenderFrameBox(screen, rect, color);
+        return;
+    }
+
+    // 본체의 오른쪽 테두리와 공유되도록 왼쪽 테두리를 일부러 그리지 않는다.
+    screen.DrawString(rect.x, rect.y, std::string(rect.width - 1, '-') + "+", color);
+    for (int row = 1; row < rect.height - 1; ++row) {
+        screen.DrawString(rect.x, rect.y + row, std::string(rect.width - 1, ' ') + "|", color);
+    }
+    screen.DrawString(rect.x, rect.y + rect.height - 1, std::string(rect.width - 1, '-') + "+", color);
+}
+
 void RenderRelicPanel(
     ScreenManager& screen,
     const std::vector<RelicData>& relics,
@@ -794,7 +820,7 @@ void RenderRelicPanel(
         }
     }
 
-    RenderFrameBox(screen, handleRect, frameColor);
+    RenderRelicPanelHandle(screen, handleRect, frameColor, bodyRect.x + bodyRect.width > 0);
     const std::string arrowText = progress >= 0.65f ? "<-" : "->";
     screen.DrawString(
         handleRect.x + 1,
@@ -3258,7 +3284,11 @@ int main(int argc, char* argv[]) {
                                             PlayRandomEffect(audio, buffPool, L"sfx_power_card", audioRng, audioAliasCounter, settings.effectsEnabled);
                                         }
                                         else if (playedCard.type == CardType::Attack) {
-                                            if (IsFireAttackCard(playedCard)) {
+                                            if (combatSystem->IsComboEnabled() && actionResult.enemyHit) {
+                                                const int comboPitch = (std::min)(1800, 1000 + ((std::max)(0, combatSystem->GetComboCount() - 1) * 55));
+                                                PlayFixedEffectWithSpeed(audio, L"sfx\\SOTE_SFX_FastBlunt_v2.ogg", L"sfx_combo_hit", audioAliasCounter, settings.effectsEnabled, comboPitch);
+                                            }
+                                            else if (IsFireAttackCard(playedCard)) {
                                                 PlayRandomEffect(audio, { L"sfx\\SOTE_SFX_FireIgnite_1_v1.ogg", L"sfx\\SOTE_SFX_FireIgnite_2_v1.ogg" }, L"sfx_attack_fire", audioRng, audioAliasCounter, settings.effectsEnabled);
                                             }
                                             else if (IsThunderCard(playedCard)) {

@@ -38,6 +38,7 @@ public:
 
     void SetVolumes(int master, int bgm, int sfx);
     void PlayEffect(const std::wstring& filename, const std::wstring& alias, bool loop = false);
+    void PlayEffectWithSpeed(const std::wstring& filename, const std::wstring& alias, int speedPermille, bool loop = false);
     void StopEffect(const std::wstring& alias);
 
     // 두 점 사이의 거리를 계산하여 지정된 alias 채널의 볼륨을 실시간으로 조절
