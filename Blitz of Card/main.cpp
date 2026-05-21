@@ -905,16 +905,15 @@ int GetSliderValueFromMouse(const Rect& trackRect, int mouseX) {
 }
 
 string BuildPotionListText(const vector<PotionData>& potions) {
-    if (potions.empty()) {
-        return u8"없음";
-    }
-
     string text;
-    for (size_t index = 0; index < potions.size(); ++index) {
+    constexpr size_t kPotionSlotCount = 3;
+    for (size_t index = 0; index < kPotionSlotCount; ++index) {
         if (index > 0) {
             text += ", ";
         }
-        text += potions[index].name;
+        text += "[";
+        text += (index < potions.size()) ? potions[index].name : "    ";
+        text += "]";
     }
     return text;
 }
@@ -1916,6 +1915,16 @@ int main(int argc, char* argv[]) {
         };
 
     auto abandonRunFromSettings = [&]() {
+        if (run.scene == RunSceneType::CardPackSelect || run.selectedCardPackArchetype == CardArchetype::None) {
+            // 카드팩 선택 전에는 실제 런 콘텐츠가 시작되지 않았으므로 기록/엔딩을 만들지 않는다.
+            SaveManager::DeleteContinueRun();
+            hasContinueRun = false;
+            run.pendingConfirm = ConfirmActionType::None;
+            run.overlay = RunOverlayType::None;
+            transitionToTitle();
+            return;
+        }
+
         const string failureReason = to_string((std::max)(1, run.currentFloor)) + u8"층에서 도전을 포기하셨습니다.";
         finishRunToEnding(false, failureReason);
         };
@@ -2702,32 +2711,39 @@ int main(int argc, char* argv[]) {
                         TextLayout::HorizontalAlign::Center);
                     screen.DrawString(stableTitleX, animatedDetailRect.y + 1, previewPack.title, detailColor);
 
-                    const int detailTextX = animatedDetailRect.x + (CardUI::DefaultWidth() * 2) + 10;
-                    const int detailTextWidth = (std::max)(12, animatedDetailRect.x + animatedDetailRect.width - detailTextX - 3);
-                    const Rect packSummaryRect = { detailTextX, animatedDetailRect.y + 4, detailTextWidth, 5 };
-                    const Rect cardDetailRect = { detailTextX, animatedDetailRect.y + 11, detailTextWidth, 8 };
+                    std::vector<CardData> specialPreviewCards;
+                    specialPreviewCards.reserve(previewPack.cards.size());
+                    for (const CardData& card : previewPack.cards) {
+                        if (!CardLibrary::IsBasicStrike(card) && !CardLibrary::IsBasicDefend(card)) {
+                            specialPreviewCards.push_back(card);
+                        }
+                    }
 
+                    const int visiblePreviewCount = (std::min)(7, static_cast<int>(specialPreviewCards.size()));
                     std::vector<Rect> cardPreviewRects;
-                    cardPreviewRects.reserve(previewPack.cards.size());
+                    cardPreviewRects.reserve(static_cast<size_t>(visiblePreviewCount));
                     const int previewCardWidth = CardUI::DefaultWidth();
                     const int previewCardHeight = CardUI::DefaultHeight();
-                    const int previewCardGapX = 3;
-                    const int previewCardGapY = 2;
                     const int cardGridLeft = animatedDetailRect.x + 3;
+                    const int cardGridRight = animatedDetailRect.x + animatedDetailRect.width - 3;
+                    const int cardGridAvailableWidth = (std::max)(previewCardWidth, cardGridRight - cardGridLeft);
+                    const int preferredPreviewGapX = 3;
+                    const int previewCardStride = visiblePreviewCount <= 1
+                        ? 0
+                        : (std::min)(
+                            previewCardWidth + preferredPreviewGapX,
+                            (std::max)(1, (cardGridAvailableWidth - previewCardWidth) / (visiblePreviewCount - 1)));
                     const int cardGridTop = animatedDetailRect.y + 4;
 
-                    for (size_t cardIndex = 0; cardIndex < previewPack.cards.size(); ++cardIndex) {
-                        const int column = static_cast<int>(cardIndex % 2);
-                        const int row = static_cast<int>(cardIndex / 2);
+                    for (int cardIndex = 0; cardIndex < visiblePreviewCount; ++cardIndex) {
                         cardPreviewRects.push_back({
-                            cardGridLeft + column * (previewCardWidth + previewCardGapX),
-                            cardGridTop + row * (previewCardHeight + previewCardGapY),
+                            cardGridLeft + cardIndex * previewCardStride,
+                            cardGridTop,
                             previewCardWidth,
                             previewCardHeight
                             });
                     }
 
-                    int hoveredPreviewCardIndex = -1;
                     for (size_t cardIndex = 0; cardIndex < cardPreviewRects.size(); ++cardIndex) {
                         const Rect& previewCardRect = cardPreviewRects[cardIndex];
                         if (!RectFitsInside(animatedDetailRect, previewCardRect)) {
@@ -2735,12 +2751,12 @@ int main(int argc, char* argv[]) {
                         }
 
                         const bool hoveredCard = previewCardRect.Contains(mouseX, mouseY);
-                        if (hoveredCard) {
-                            hoveredPreviewCardIndex = static_cast<int>(cardIndex);
-                        }
-
-                        CardData previewCard = previewPack.cards[cardIndex];
+                        CardData previewCard = specialPreviewCards[cardIndex];
                         CardUI previewUi(previewCardRect.x, previewCardRect.y, &previewCard);
+                        const int rightOcclusion = (cardIndex + 1 < cardPreviewRects.size())
+                            ? (std::max)(0, previewCardWidth - previewCardStride)
+                            : 0;
+                        previewUi.SetRightOcclusion(rightOcclusion);
                         previewUi.SetFrameColor(hoveredCard ? detailColor : GetCardTypeFrameColor(previewCard.type));
                         if (cardPackInputAllowed) {
                             previewUi.Update(input);
@@ -2748,7 +2764,7 @@ int main(int argc, char* argv[]) {
                         previewUi.Render(screen);
                     }
 
-                    if (RectFitsInside(animatedDetailRect, packSummaryRect)) {
+                    if (animatedDetailRect.height >= previewCardHeight + 10) {
                         std::string recommendedStyle = u8"균형 운영";
                         switch (previewPack.archetype) {
                         case CardArchetype::Combo: recommendedStyle = u8"공격 템포"; break;
@@ -2758,26 +2774,16 @@ int main(int argc, char* argv[]) {
                         case CardArchetype::Cycle: recommendedStyle = u8"순환 가속"; break;
                         default: break;
                         }
+
                         const std::vector<std::string> summaryLines = {
                             previewPack.description,
-                            string(u8"포함 카드 수: ") + to_string(previewPack.cards.size()),
+                            string(u8"카드 수: ") + to_string(static_cast<int>(specialPreviewCards.size())),
                             string(u8"추천 성향: ") + recommendedStyle
                         };
-                        RenderTextBlock(screen, { packSummaryRect.x + 1, packSummaryRect.y, packSummaryRect.width - 2, packSummaryRect.height }, summaryLines, COLOR_WHITE);
-                    }
-
-                    if (RectFitsInside(animatedDetailRect, cardDetailRect)) {
-                        std::vector<std::string> detailLines;
-                        if (hoveredPreviewCardIndex >= 0) {
-                            const CardData& hoveredCard = previewPack.cards[static_cast<size_t>(hoveredPreviewCardIndex)];
-                            detailLines.push_back(BuildCardSummary(hoveredCard));
-                            detailLines.push_back(hoveredCard.description);
-                        }
-                        else {
-                            detailLines.push_back(u8"카드를 올려두면 해당 카드의 설명이 이곳에 표시됩니다.");
-                            detailLines.push_back(u8"선택된 카드팩은 시작 후 즉시 덱에 편입됩니다.");
-                        }
-                        RenderTextBlock(screen, { cardDetailRect.x + 1, cardDetailRect.y, cardDetailRect.width - 2, cardDetailRect.height }, detailLines, COLOR_WHITE);
+                        const int summaryWidth = (std::min)(78, animatedDetailRect.width - 8);
+                        const int summaryX = animatedDetailRect.x + ((animatedDetailRect.width - summaryWidth) / 2);
+                        const int summaryY = animatedDetailRect.y + animatedDetailRect.height - 7;
+                        RenderTextBlock(screen, { summaryX, summaryY, summaryWidth, 5 }, summaryLines, COLOR_WHITE);
                     }
                 }
                 else {
@@ -3277,13 +3283,15 @@ int main(int argc, char* argv[]) {
                             }
 
                             vector<ButtonUI> potionButtons;
-                            for (size_t potionIndex = 0; potionIndex < run.potions.size(); ++potionIndex) {
+                            constexpr size_t kCombatPotionSlotCount = 3;
+                            for (size_t potionIndex = 0; potionIndex < kCombatPotionSlotCount; ++potionIndex) {
+                                const std::string slotLabel = (potionIndex < run.potions.size()) ? run.potions[potionIndex].name : "    ";
                                 potionButtons.emplace_back(
                                     hudPotionStartX + static_cast<int>(potionIndex) * 16,
                                     0,
                                     16,
                                     3,
-                                    run.potions[potionIndex].name,
+                                    slotLabel,
                                     COLOR_WHITE,
                                     COLOR_YELLOW);
                             }
@@ -3446,16 +3454,19 @@ int main(int argc, char* argv[]) {
                             }
 
                             if (allowCardInteraction) {
-                                for (ButtonUI& potionButton : potionButtons) {
-                                    potionButton.Update(input);
+                                for (size_t potionIndex = 0; potionIndex < potionButtons.size(); ++potionIndex) {
+                                    if (potionIndex < run.potions.size()) {
+                                        potionButtons[potionIndex].Update(input);
+                                    }
                                 }
                             }
 
                             bool escapeRequested = false;
-                            for (size_t potionIndex = 0; potionIndex < potionButtons.size() && potionIndex < run.potions.size(); ++potionIndex) {
-                                UpdateRectHoverAudio(potionButtons[potionIndex].IsHovered(), "combat_potion_" + to_string(potionIndex), audio, potionUsePool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
+                            for (size_t potionIndex = 0; potionIndex < potionButtons.size(); ++potionIndex) {
+                                const bool hasPotion = potionIndex < run.potions.size();
+                                UpdateRectHoverAudio(hasPotion && potionButtons[potionIndex].IsHovered(), "combat_potion_" + to_string(potionIndex), audio, potionUsePool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
                                 potionButtons[potionIndex].Render(screen);
-                                if (potionButtons[potionIndex].IsClicked()) {
+                                if (hasPotion && potionButtons[potionIndex].IsClicked()) {
                                     const PotionData potion = run.potions[potionIndex];
                                     if (potion.name == u8"회복 포션") {
                                         run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + 12);
@@ -4634,5 +4645,6 @@ int main(int argc, char* argv[]) {
         SaveManager::SaveSettings(settings);
     }
 
+    audio.Shutdown();
     return 0;
 }

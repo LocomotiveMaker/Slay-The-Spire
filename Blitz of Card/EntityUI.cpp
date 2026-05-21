@@ -132,14 +132,13 @@ void EntityUI::RefreshLayout() {
         artWidth = (std::max)(artWidth, TextLayout::MeasureDisplayWidthUtf8(line));
     }
 
-    const int nameWidth = (std::max)(artWidth, TextLayout::MeasureDisplayWidthUtf8(data ? data->name : ""));
     healthBarWidth = (std::max)(18, (std::min)(36, artWidth - 4));
-    width = (std::max)(nameWidth, healthBarWidth);
-    height = artHeight + 5;
+    width = (std::max)(artWidth, healthBarWidth);
+    height = artHeight + 3;
 
     const int artTopY = GetArtTopY();
     x = anchorCenterX - (width / 2);
-    y = artTopY - 2;
+    y = artTopY;
     healthBar->SetBarWidth(healthBarWidth);
     healthBar->SetPosition(anchorCenterX - (healthBarWidth / 2), anchorBottomY + 2);
 }
@@ -219,15 +218,6 @@ void EntityUI::Render(ScreenManager& screen) {
         const int lineWidth = TextLayout::MeasureDisplayWidthUtf8(currentArt[index]);
         const int drawX = artLeftX + ((artWidth - lineWidth) / 2) + horizontalShake;
         screen.DrawString(drawX, artTopY + static_cast<int>(index), currentArt[index], artColor);
-    }
-
-    if (!isPlayer || isTargeted) {
-        const std::string headerText = isTargeted ? std::string(u8"[조준 중]") : data->name;
-        screen.DrawString(
-            anchorCenterX - (width / 2) + horizontalShake,
-            artTopY - 2,
-            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(headerText), width, TextLayout::HorizontalAlign::Center),
-            isTargeted ? COLOR_YELLOW : COLOR_WHITE);
     }
 
     healthBar->Render(screen);

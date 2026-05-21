@@ -192,6 +192,18 @@ void AudioManager::StopEffect(const std::wstring& alias) {
     mciSendStringW((L"close " + alias).c_str(), nullptr, 0, nullptr);
 }
 
+void AudioManager::Shutdown() {
+    queuedBgmFile.clear();
+    currentBgmFile.clear();
+    isFadingOutForSwitch = false;
+    fadeDurationSec = 0.0f;
+    fadeElapsedSec = 0.0f;
+
+    // 종료 시점에 MCI alias가 남아 있으면 일부 환경에서 종료가 거칠게 끝날 수 있다.
+    mciSendStringW(L"stop all", nullptr, 0, nullptr);
+    mciSendStringW(L"close all", nullptr, 0, nullptr);
+}
+
 void AudioManager::UpdateSpatialVolume(int sourceX, int sourceY, int listenerX, int listenerY, const std::wstring& alias, int maxDistance) {
     const double dx = static_cast<double>(listenerX - sourceX);
     const double dy = static_cast<double>(listenerY - sourceY) * 2.0;
