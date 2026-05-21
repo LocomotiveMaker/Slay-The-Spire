@@ -3391,6 +3391,7 @@ int main(int argc, char* argv[]) {
                                 draggedHandIndex < 0 &&
                                 combatSystem->GetManualDrawCharges() > 0;
                             const bool drawPileHovered = canManualDraw && expandedDrawRect.Contains(mouseX, mouseY);
+                            bool handChangedThisFrame = false;
                             if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
                                 const CardData& draggedCard = hand[static_cast<size_t>(draggedHandIndex)];
                                 const bool hasEnergy = draggedCard.cost <= combatSystem->GetEnergy();
@@ -3480,6 +3481,7 @@ int main(int argc, char* argv[]) {
                             if (drawPileHovered && input.IsLeftClickDown()) {
                                 const CombatActionResult drawResult = combatSystem->TryManualDrawFromPile();
                                 if (drawResult.success) {
+                                    handChangedThisFrame = handChangedThisFrame || drawResult.handChanged;
                                     PlayFixedEffect(audio, L"card_pick_sfx.wav", L"sfx_draw", audioAliasCounter, settings.effectsEnabled);
                                 }
                                 else {
@@ -3493,6 +3495,7 @@ int main(int argc, char* argv[]) {
                                     CombatActionResult actionResult = combatSystem->TryDiscardCard(draggedHandIndex);
                                     actionSucceeded = actionResult.success;
                                     if (actionResult.success) {
+                                        handChangedThisFrame = handChangedThisFrame || actionResult.handChanged;
                                         ++globalStats.totalCardsDiscarded;
                                         forceRecenterHandLayout = true;
                                         if (enemyEntityUi && actionResult.enemyHit) {
@@ -3512,6 +3515,7 @@ int main(int argc, char* argv[]) {
                                     CombatActionResult actionResult = combatSystem->TryUseCard(draggedHandIndex, actionTarget);
                                     actionSucceeded = actionResult.success;
                                     if (actionResult.success) {
+                                        handChangedThisFrame = handChangedThisFrame || actionResult.handChanged;
                                         const float poseSpeedScale = (std::max)(0.25f, combatSystem->GetSpeedMultiplier() * (settings.gameSpeedPercent / 100.0f));
                                         const float playerPoseDurationSec = 1.0f / poseSpeedScale;
                                         ++globalStats.totalCardsUsed;
@@ -3595,6 +3599,7 @@ int main(int argc, char* argv[]) {
                                 ? (draggedHandIndex >= 0 ? combatSystem->GetDragTimeScale() : 1.0f)
                                 : 0.0f;
                             const CombatFrameResult frameResult = combatSystem->Update(deltaTimeSec, combatTimeScale * (settings.gameSpeedPercent / 100.0f));
+                            handChangedThisFrame = handChangedThisFrame || frameResult.handChanged;
                             powerBannerTimerSec = (std::max)(0.0f, powerBannerTimerSec - deltaTimeSec);
 
                             if (frameResult.enemyHit && enemyEntityUi) {
@@ -3743,22 +3748,30 @@ int main(int argc, char* argv[]) {
                                 return handCards[static_cast<size_t>(leftIndex)].GetX() < handCards[static_cast<size_t>(rightIndex)].GetX();
                                 });
 
-                            const bool hoveredCardCanFloat = allowCardInteraction &&
+                            const bool canRenderHandSnapshot =
+                                !handChangedThisFrame &&
+                                static_cast<int>(combatSystem->GetHand().size()) == cardCount &&
+                                handCards.size() == static_cast<size_t>(cardCount);
+
+                            const bool hoveredCardCanFloat = canRenderHandSnapshot &&
+                                allowCardInteraction &&
                                 hoveredHandIndex >= 0 &&
                                 hoveredHandIndex < cardCount &&
                                 hand[static_cast<size_t>(hoveredHandIndex)].cost <= combatSystem->GetEnergy();
 
-                            for (int cardIndex : renderOrder) {
-                                if (cardIndex == draggedHandIndex || (draggedHandIndex < 0 && hoveredCardCanFloat && cardIndex == hoveredHandIndex)) {
-                                    continue;
+                            if (canRenderHandSnapshot) {
+                                for (int cardIndex : renderOrder) {
+                                    if (cardIndex == draggedHandIndex || (draggedHandIndex < 0 && hoveredCardCanFloat && cardIndex == hoveredHandIndex)) {
+                                        continue;
+                                    }
+                                    handCards[static_cast<size_t>(cardIndex)].Render(screen);
                                 }
-                                handCards[static_cast<size_t>(cardIndex)].Render(screen);
-                            }
-                            if (draggedHandIndex < 0 && hoveredCardCanFloat) {
-                                handCards[static_cast<size_t>(hoveredHandIndex)].Render(screen);
-                            }
-                            if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
-                                handCards[static_cast<size_t>(draggedHandIndex)].Render(screen);
+                                if (draggedHandIndex < 0 && hoveredCardCanFloat) {
+                                    handCards[static_cast<size_t>(hoveredHandIndex)].Render(screen);
+                                }
+                                if (draggedHandIndex >= 0 && draggedHandIndex < cardCount) {
+                                    handCards[static_cast<size_t>(draggedHandIndex)].Render(screen);
+                                }
                             }
                             if (targetingArrow.IsActive()) {
                                 targetingArrow.Render(screen);
