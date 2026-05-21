@@ -388,12 +388,12 @@ inline int BuildUpgradeValueBonus(int value) {
         return 25;
     }
     if (magnitude >= 20) {
-        return 5;
+        return 6;
     }
     if (magnitude >= 10) {
-        return 3;
+        return 4;
     }
-    return 1;
+    return 2;
 }
 
 inline void ApplyFirstNumericUpgrade(CardData& card) {

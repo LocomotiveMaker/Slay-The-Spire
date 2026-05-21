@@ -8,9 +8,9 @@
 // 여기에서 한 번에 처리한다.
 namespace {
 
-constexpr int kCardInnerWidth = 38;
+constexpr int kCardInnerWidth = 34;
 constexpr int kDescriptionTop = 13;
-constexpr int kDescriptionLineCount = 8;
+constexpr int kDescriptionLineCount = 6;
 constexpr int kArtTop = 5;
 constexpr int kArtLineCount = 6;
 
@@ -48,6 +48,11 @@ std::string BuildUpgradeBadge(int upgradeLevel) {
     }
 
     return "+" + std::to_string(safeLevel);
+}
+
+void RedrawSideBorders(ScreenManager& screen, int x, int y, int width, WORD color) {
+    screen.DrawString(x, y, "|", color);
+    screen.DrawString(x + width - 1, y, "|", color);
 }
 
 } // namespace
@@ -129,6 +134,7 @@ void CardUI::Render(ScreenManager& screen) {
     if (data == nullptr) return;
 
     const WORD color = playable ? (isHovered ? COLOR_YELLOW : frameColor) : FOREGROUND_INTENSITY;
+    const WORD textColor = playable ? COLOR_WHITE : FOREGROUND_INTENSITY;
     const std::vector<std::string>& artLines = CardArtLibrary::Get(*data);
     const std::string topFrame = BuildHorizontalFrame(',', '-', '.', width);
     const std::string bottomFrame = BuildHorizontalFrame('`', '-', '\'', width);
@@ -138,19 +144,26 @@ void CardUI::Render(ScreenManager& screen) {
         x,
         y + 1,
         BuildCardLine(TextLayout::Utf8ToWide(CardLibrary::BuildCostPips(data->cost)), TextLayout::HorizontalAlign::Left),
-        color);
+        textColor);
+    RedrawSideBorders(screen, x, y + 1, width, color);
     const std::string upgradeBadge = BuildUpgradeBadge(data->upgradeLevel);
     if (!upgradeBadge.empty()) {
         const std::wstring upgradeWide = TextLayout::Utf8ToWide(upgradeBadge);
         const int upgradeWidth = TextLayout::MeasureDisplayWidth(upgradeWide);
         const int badgeX = x + 1 + (std::max)(0, kCardInnerWidth - upgradeWidth);
-        const WORD upgradeColor = (data->upgradeLevel >= 2)
-            ? (COLOR_RED | COLOR_GREEN | FOREGROUND_INTENSITY)
-            : COLOR_GREEN;
+        WORD upgradeColor = COLOR_GREEN;
+        if (data->upgradeLevel >= 2) {
+            switch ((GetTickCount() / 160) % 3) {
+            case 0: upgradeColor = COLOR_RED | FOREGROUND_INTENSITY; break;
+            case 1: upgradeColor = COLOR_GREEN | FOREGROUND_INTENSITY; break;
+            default: upgradeColor = COLOR_YELLOW; break;
+            }
+        }
         screen.DrawString(badgeX, y + 1, upgradeWide, playable ? upgradeColor : FOREGROUND_INTENSITY);
     }
     screen.DrawString(x, y + 2, BuildCardLine(L""), color);
-    screen.DrawString(x, y + 3, cachedNameLine, color);
+    screen.DrawString(x, y + 3, cachedNameLine, textColor);
+    RedrawSideBorders(screen, x, y + 3, width, color);
     screen.DrawString(x, y + 4, BuildCardLine(L""), color);
 
     for (int artIndex = 0; artIndex < kArtLineCount; ++artIndex) {
@@ -162,19 +175,22 @@ void CardUI::Render(ScreenManager& screen) {
             x,
             y + kArtTop + artIndex,
             BuildCardLine(artLine, TextLayout::HorizontalAlign::Center),
-            color);
+            playable ? color : FOREGROUND_INTENSITY);
+        RedrawSideBorders(screen, x, y + kArtTop + artIndex, width, color);
     }
 
     screen.DrawString(x, y + 11, BuildCardLine(L""), color);
     screen.DrawString(x, y + 12, BuildCardLine(L""), color);
 
     for (int lineIndex = 0; lineIndex < kDescriptionLineCount; ++lineIndex) {
-        screen.DrawString(x, y + kDescriptionTop + lineIndex, cachedDescriptionLines[static_cast<size_t>(lineIndex)], color);
+        screen.DrawString(x, y + kDescriptionTop + lineIndex, cachedDescriptionLines[static_cast<size_t>(lineIndex)], textColor);
+        RedrawSideBorders(screen, x, y + kDescriptionTop + lineIndex, width, color);
     }
 
+    screen.DrawString(x, y + 19, BuildCardLine(L""), color);
+    screen.DrawString(x, y + 20, cachedTypeLine, textColor);
+    RedrawSideBorders(screen, x, y + 20, width, color);
     screen.DrawString(x, y + 21, BuildCardLine(L""), color);
-    screen.DrawString(x, y + 22, cachedTypeLine, color);
-    screen.DrawString(x, y + 23, BuildCardLine(L""), color);
-    screen.DrawString(x, y + 24, BuildCardLine(L""), color);
-    screen.DrawString(x, y + 25, bottomFrame, color);
+    screen.DrawString(x, y + 22, BuildCardLine(L""), color);
+    screen.DrawString(x, y + 23, bottomFrame, color);
 }

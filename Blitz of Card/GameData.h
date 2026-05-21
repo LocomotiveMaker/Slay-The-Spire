@@ -39,11 +39,23 @@ enum class CardArchetype {
 
 enum class RelicArtId {
     None,
-    Bloodstone,
-    ShieldGear,
-    AlchemyPouch,
-    GoldenTooth,
-    CrackedCharm
+    OldClock,
+    SharpMetronome,
+    CrackedShield,
+    PoisonNeedle,
+    RedMedal,
+    SwiftWristband,
+    PreservedEmber,
+    MerchantCoin,
+    CrackedHourglass,
+    BattleFeather,
+    BronzeHeart,
+    SharpCharm,
+    Bloodstone = PreservedEmber,
+    ShieldGear = CrackedShield,
+    AlchemyPouch = PoisonNeedle,
+    GoldenTooth = MerchantCoin,
+    CrackedCharm = SharpCharm
 };
 
 // 카드 데이터 구조체

@@ -49,6 +49,7 @@ struct Rect {
 
 void RenderFrameBox(ScreenManager& screen, const Rect& rect, WORD color);
 void RenderWrappedText(ScreenManager& screen, int x, int y, int width, const string& text, WORD color);
+void RenderTextBlock(ScreenManager& screen, const Rect& rect, const vector<string>& lines, WORD color);
 
 enum class EndingStage {
     None,
@@ -221,7 +222,7 @@ Rect LerpRectFixedBottomCenter(const Rect& from, const Rect& to, float t) {
     return result;
 }
 
-constexpr int kNeowCardPackOffsetX = -40;
+constexpr int kNeowCardPackOffsetX = 40;
 constexpr int kCardPackExpandedPanelSideMargin = 3;
 constexpr int kCardPackExpandedPanelTopGap = 2;
 constexpr int kTitleSettingsSliderWidth = 32;
@@ -244,7 +245,12 @@ const std::vector<ArtPreviewEntry>& GetArtPreviewEntries() {
         { AsciiArtId::PlayerCardPack, u8"카드팩 플레이어", COLOR_WHITE },
         { AsciiArtId::EnemyNormal, u8"적 기본", COLOR_WHITE },
         { AsciiArtId::EnemyElite, u8"적 엘리트", COLOR_YELLOW },
+        { AsciiArtId::EnemyEliteWitch, u8"엘리트 마녀", COLOR_YELLOW },
+        { AsciiArtId::EnemyEliteReaper, u8"엘리트 사신", COLOR_YELLOW },
+        { AsciiArtId::EnemyEliteBackturner, u8"엘리트 등지기", COLOR_YELLOW },
         { AsciiArtId::EnemyBoss, u8"적 보스", COLOR_RED },
+        { AsciiArtId::EnemyBossTitan, u8"보스 1", COLOR_RED },
+        { AsciiArtId::EnemyBossCrown, u8"보스 2", COLOR_RED },
         { AsciiArtId::Neow, u8"니오우", COLOR_WHITE },
         { AsciiArtId::Merchant, u8"상인", COLOR_WHITE },
         { AsciiArtId::TreasureChestClosed, u8"보물 상자(닫힘)", COLOR_YELLOW },
@@ -1019,6 +1025,224 @@ string BuildCardSummary(const CardData& card) {
     return text;
 }
 
+constexpr int kRelicOldClock = 3000;
+constexpr int kRelicSharpMetronome = 3001;
+constexpr int kRelicCrackedShield = 3002;
+constexpr int kRelicPoisonNeedle = 3003;
+constexpr int kRelicRedMedal = 3004;
+constexpr int kRelicSwiftWristband = 3005;
+constexpr int kRelicPreservedEmber = 3006;
+constexpr int kRelicMerchantCoin = 3007;
+constexpr int kRelicCrackedHourglass = 3008;
+constexpr int kRelicBattleFeather = 3009;
+constexpr int kRelicBronzeHeart = 3010;
+constexpr int kRelicSharpCharm = 3011;
+
+int CountRelicId(const RunStateData& run, int relicId) {
+    return static_cast<int>(std::count_if(run.relics.begin(), run.relics.end(), [relicId](const RelicData& relic) {
+        return relic.id == relicId;
+    }));
+}
+
+bool HasRelicId(const RunStateData& run, int relicId) {
+    return CountRelicId(run, relicId) > 0;
+}
+
+int GetShopPrice(const RunStateData& run, int basePrice) {
+    int price = basePrice;
+    if (HasRelicId(run, kRelicMerchantCoin)) {
+        price = static_cast<int>(std::ceil(static_cast<float>(price) * 0.85f));
+    }
+    return (std::max)(1, price);
+}
+
+void AcquireRelic(RunStateData& run, const RelicData& relic) {
+    run.relics.push_back(relic);
+    if (relic.id == kRelicBronzeHeart) {
+        run.player.maxHp += 10;
+        run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + 10);
+    }
+}
+
+void ApplyRelicsToCombatConfig(const RunStateData& run, CombatConfig& config) {
+    config.baseEnemyIntentIntervalSec += 2.0f * static_cast<float>(CountRelicId(run, kRelicOldClock));
+    config.baseDrawIntervalSec *= std::pow(0.95f, static_cast<float>(CountRelicId(run, kRelicSwiftWristband)));
+    config.speedGainPerEnemyAction *= std::pow(0.8f, static_cast<float>(CountRelicId(run, kRelicCrackedHourglass)));
+    config.startingHandSize += CountRelicId(run, kRelicBattleFeather);
+    config.attackDamageBonus += CountRelicId(run, kRelicSharpCharm);
+    config.comboDamageBonusAtFive += 2 * CountRelicId(run, kRelicSharpMetronome);
+    config.blockGainBonus += 2 * CountRelicId(run, kRelicCrackedShield);
+    config.strengthGainBonus += CountRelicId(run, kRelicRedMedal);
+}
+
+struct CardGridResult {
+    int selectedIndex = -1;
+    bool backClicked = false;
+};
+
+CardGridResult RenderCardGridPopup(
+    ScreenManager& screen,
+    InputManager& input,
+    const std::vector<CardData>& cards,
+    int& rowScroll,
+    const std::string& title,
+    const std::string& hint,
+    const std::string& backLabel,
+    bool selectable,
+    bool requireUpgradeable,
+    bool allowInput,
+    int mouseX,
+    int mouseY) {
+    CardGridResult result = {};
+    const int cardWidth = CardUI::DefaultWidth();
+    const int cardHeight = CardUI::DefaultHeight();
+    const int columns = 5;
+    const int gapX = 2;
+    const int gapY = 2;
+    const int popupWidth = (std::min)(screen.GetWidth() - 6, columns * cardWidth + (columns - 1) * gapX + 8);
+    const int popupHeight = (std::min)(screen.GetHeight() - 8, (cardHeight + gapY) * 2 + 12);
+    const Rect popup = {
+        screen.GetCenterX() - (popupWidth / 2),
+        screen.GetCenterY() - (popupHeight / 2),
+        popupWidth,
+        popupHeight
+    };
+
+    RenderFrameBox(screen, popup, COLOR_YELLOW);
+    RenderPanelTitle(screen, popup, title, COLOR_YELLOW);
+    if (!hint.empty()) {
+        screen.DrawString(popup.x + 3, popup.y + 3, hint, FOREGROUND_INTENSITY);
+    }
+
+    const int gridTop = popup.y + 5;
+    const int gridLeft = popup.x + 4;
+    const int visibleRows = (std::max)(1, (popup.y + popup.height - 7 - gridTop) / (cardHeight + gapY));
+    const int totalRows = static_cast<int>((cards.size() + columns - 1) / columns);
+    const int maxScroll = (std::max)(0, totalRows - visibleRows);
+
+    if (allowInput && input.GetWheelDelta() != 0) {
+        rowScroll -= input.GetWheelDelta();
+    }
+    rowScroll = (std::max)(0, (std::min)(rowScroll, maxScroll));
+
+    for (int row = 0; row < visibleRows; ++row) {
+        const int sourceRow = rowScroll + row;
+        for (int col = 0; col < columns; ++col) {
+            const int cardIndex = sourceRow * columns + col;
+            if (cardIndex >= static_cast<int>(cards.size())) {
+                continue;
+            }
+
+            const int cardX = gridLeft + col * (cardWidth + gapX);
+            const int cardY = gridTop + row * (cardHeight + gapY);
+            CardData cardCopy = cards[static_cast<size_t>(cardIndex)];
+            CardUI cardUi(cardX, cardY, &cardCopy);
+            const bool canSelect = selectable && (!requireUpgradeable || CardLibrary::CanApplyNextUpgrade(cardCopy));
+            cardUi.SetPlayable(!selectable || canSelect);
+            if (allowInput && selectable) {
+                cardUi.Update(input);
+            }
+            cardUi.Render(screen);
+
+            const Rect cardRect = { cardX, cardY - CardUI::HoverLift(), cardWidth, cardHeight + CardUI::HoverLift() };
+            if (allowInput && canSelect && cardRect.Contains(mouseX, mouseY) && input.IsLeftClickDown()) {
+                result.selectedIndex = cardIndex;
+            }
+        }
+    }
+
+    if (maxScroll > 0) {
+        screen.DrawString(popup.x + popup.width - 16, popup.y + popup.height - 3, std::to_string(rowScroll + 1) + "/" + std::to_string(maxScroll + 1), FOREGROUND_INTENSITY);
+    }
+
+    if (!backLabel.empty()) {
+        ButtonUI btnBack(popup.x + popup.width - 18, popup.y + popup.height - 4, 14, 3, backLabel, COLOR_WHITE, COLOR_YELLOW);
+        if (allowInput) {
+            btnBack.Update(input);
+        }
+        btnBack.Render(screen);
+        result.backClicked = btnBack.IsClicked();
+    }
+
+    return result;
+}
+
+struct UpgradeCompareResult {
+    bool confirm = false;
+    bool cancel = false;
+};
+
+UpgradeCompareResult RenderUpgradeComparePopup(
+    ScreenManager& screen,
+    InputManager& input,
+    const CardData& beforeCard,
+    bool allowInput) {
+    UpgradeCompareResult result = {};
+    const Rect popup = {
+        screen.GetCenterX() - 55,
+        screen.GetCenterY() - 18,
+        110,
+        36
+    };
+    RenderFrameBox(screen, popup, COLOR_YELLOW);
+    RenderPanelTitle(screen, popup, u8"카드 강화 확인", COLOR_YELLOW);
+
+    CardData afterCard = beforeCard;
+    const bool canUpgrade = CardLibrary::ApplyNextUpgrade(afterCard);
+    if (!canUpgrade) {
+        RenderWrappedText(screen, popup.x + 4, popup.y + 5, popup.width - 8, u8"이 카드는 현재 자동 강화 규칙으로 처리할 수 없습니다.", COLOR_WHITE);
+    }
+    else {
+        const int beforeCardX = screen.GetCenterX() - CardUI::DefaultWidth() - 12;
+        const int afterCardX = screen.GetCenterX() + 12;
+        screen.DrawString(beforeCardX + 17, popup.y + 4, u8"강화 전", COLOR_WHITE);
+        screen.DrawString(afterCardX + 14, popup.y + 4, u8"강화 후", COLOR_WHITE);
+        CardData beforeCopy = beforeCard;
+        CardUI beforeUi(beforeCardX, popup.y + 6, &beforeCopy);
+        beforeUi.SetPlayable(false);
+        beforeUi.Render(screen);
+
+        CardUI afterUi(afterCardX, popup.y + 6, &afterCard);
+        afterUi.SetPlayable(false);
+        afterUi.Render(screen);
+
+        const WORD pulse = ((GetTickCount() / 180) % 2 == 0) ? COLOR_YELLOW : (COLOR_GREEN | FOREGROUND_INTENSITY);
+        screen.DrawString(screen.GetCenterX() - 1, popup.y + 16, " -> ", pulse);
+
+        std::vector<std::string> changedLines;
+        if (beforeCard.cost != afterCard.cost) {
+            changedLines.push_back(u8"비용: " + std::to_string(beforeCard.cost) + " -> " + std::to_string(afterCard.cost));
+        }
+        auto addValueLine = [&](const std::string& label, int beforeValue, int afterValue) {
+            if (beforeValue != afterValue) {
+                changedLines.push_back(label + ": " + std::to_string(beforeValue) + " -> " + std::to_string(afterValue));
+            }
+        };
+        addValueLine(u8"수치1", beforeCard.primaryValue, afterCard.primaryValue);
+        addValueLine(u8"수치2", beforeCard.secondaryValue, afterCard.secondaryValue);
+        addValueLine(u8"수치3", beforeCard.tertiaryValue, afterCard.tertiaryValue);
+        addValueLine(u8"수치4", beforeCard.quaternaryValue, afterCard.quaternaryValue);
+        if (changedLines.empty()) {
+            changedLines.push_back(u8"강화 단계가 증가합니다.");
+        }
+        RenderTextBlock(screen, { screen.GetCenterX() - 7, popup.y + 22, 24, 4 }, changedLines, pulse);
+    }
+
+    ButtonUI btnConfirm(screen.GetCenterX() - 17, popup.y + popup.height - 4, 14, 3, u8"강화", COLOR_WHITE, COLOR_YELLOW);
+    ButtonUI btnCancel(screen.GetCenterX() + 3, popup.y + popup.height - 4, 14, 3, u8"취소", COLOR_WHITE, COLOR_YELLOW);
+    if (allowInput && canUpgrade) {
+        btnConfirm.Update(input);
+    }
+    if (allowInput) {
+        btnCancel.Update(input);
+    }
+    btnConfirm.Render(screen);
+    btnCancel.Render(screen);
+    result.confirm = btnConfirm.IsClicked();
+    result.cancel = btnCancel.IsClicked();
+    return result;
+}
+
 bool HasPotionSlot(const RunStateData& run) {
     return run.potions.size() < 3;
 }
@@ -1322,6 +1546,8 @@ int main(int argc, char* argv[]) {
     int selectedRecordIndex = 0;
     int recordsScroll = 0;
     int deckScroll = 0;
+    int shopServiceScroll = 0;
+    int pendingUpgradeDeckIndex = -1;
     int activeSliderId = -1;
     float runPlayAccumulatorSec = 0.0f;
     bool settingsDirty = false;
@@ -1928,12 +2154,12 @@ int main(int argc, char* argv[]) {
 
             vector<ButtonUI> titleButtons;
             int buttonX = 4;
-            int buttonY = screen.GetHeight() - 20;
-            const int buttonWidth = 18;
-            const int buttonHeight = 3;
+            int buttonY = screen.GetHeight() - (hasContinueRun ? 32 : 26);
+            const int buttonWidth = 27;
+            const int buttonHeight = 5;
             auto addTitleButton = [&](const string& text) {
                 titleButtons.emplace_back(buttonX, buttonY, buttonWidth, buttonHeight, text, COLOR_WHITE, COLOR_YELLOW);
-                buttonY += 4;
+                buttonY += buttonHeight + 1;
                 };
 
             if (hasContinueRun) {
@@ -2095,7 +2321,7 @@ int main(int argc, char* argv[]) {
                     selectedRecordIndex = (std::max)(0, (std::min)(selectedRecordIndex, static_cast<int>(runRecords.size()) - 1));
                     const RunRecordData& selectedRecord = runRecords[static_cast<size_t>(selectedRecordIndex)];
 
-                    const Rect detailRect = { popup.x + popup.width / 2, popup.y + 1, popup.width / 2 - 3, popup.height - 9 };
+                    const Rect detailRect = { popup.x + popup.width / 2, popup.y + 4, popup.width / 2 - 3, popup.height - 12 };
                     RenderFrameBox(screen, detailRect, COLOR_WHITE);
                     RenderPanelTitle(screen, detailRect, selectedRecord.won ? u8"승리 기록" : u8"패배 기록", selectedRecord.won ? COLOR_GREEN : COLOR_RED);
 
@@ -2352,7 +2578,7 @@ int main(int argc, char* argv[]) {
                     screen.GetHeight() - 14
                 };
                 const int playerArtBottomY = screen.GetHeight() - 5;
-                const int neowCenterX = neowArtClip.x + (neowArtClip.width / 2);
+                const int neowCenterX = neowArtClip.x + (neowArtClip.width / 2) + kNeowCardPackOffsetX;
                 const int neowCenterY = neowArtClip.y + (neowArtClip.height / 2);
                 const int packPanelWidth = 24;
                 const int packPanelHeight = 18;
@@ -2476,15 +2702,17 @@ int main(int argc, char* argv[]) {
                         TextLayout::HorizontalAlign::Center);
                     screen.DrawString(stableTitleX, animatedDetailRect.y + 1, previewPack.title, detailColor);
 
-                    const Rect packSummaryRect = { animatedDetailRect.x + 34, animatedDetailRect.y + 4, animatedDetailRect.width - 37, 5 };
-                    const Rect cardDetailRect = { animatedDetailRect.x + 34, animatedDetailRect.y + 10, animatedDetailRect.width - 37, 8 };
+                    const int detailTextX = animatedDetailRect.x + (CardUI::DefaultWidth() * 2) + 10;
+                    const int detailTextWidth = (std::max)(12, animatedDetailRect.x + animatedDetailRect.width - detailTextX - 3);
+                    const Rect packSummaryRect = { detailTextX, animatedDetailRect.y + 4, detailTextWidth, 5 };
+                    const Rect cardDetailRect = { detailTextX, animatedDetailRect.y + 11, detailTextWidth, 8 };
 
                     std::vector<Rect> cardPreviewRects;
                     cardPreviewRects.reserve(previewPack.cards.size());
-                    const int previewCardWidth = 16;
-                    const int previewCardHeight = 6;
+                    const int previewCardWidth = CardUI::DefaultWidth();
+                    const int previewCardHeight = CardUI::DefaultHeight();
                     const int previewCardGapX = 3;
-                    const int previewCardGapY = 1;
+                    const int previewCardGapY = 2;
                     const int cardGridLeft = animatedDetailRect.x + 3;
                     const int cardGridTop = animatedDetailRect.y + 4;
 
@@ -2511,22 +2739,13 @@ int main(int argc, char* argv[]) {
                             hoveredPreviewCardIndex = static_cast<int>(cardIndex);
                         }
 
-                        RenderFrameBox(screen, previewCardRect, hoveredCard ? detailColor : COLOR_WHITE);
-                        screen.DrawString(
-                            previewCardRect.x + 1,
-                            previewCardRect.y + 1,
-                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(CardLibrary::BuildCostPips(previewPack.cards[cardIndex].cost)), previewCardRect.width - 2, TextLayout::HorizontalAlign::Left),
-                            detailColor);
-                        screen.DrawString(
-                            previewCardRect.x + 1,
-                            previewCardRect.y + 2,
-                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(previewPack.cards[cardIndex].name), previewCardRect.width - 2, TextLayout::HorizontalAlign::Center),
-                            hoveredCard ? detailColor : COLOR_WHITE);
-                        screen.DrawString(
-                            previewCardRect.x + 1,
-                            previewCardRect.y + 4,
-                            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCardTypeText(previewPack.cards[cardIndex].type)), previewCardRect.width - 2, TextLayout::HorizontalAlign::Center),
-                            FOREGROUND_INTENSITY);
+                        CardData previewCard = previewPack.cards[cardIndex];
+                        CardUI previewUi(previewCardRect.x, previewCardRect.y, &previewCard);
+                        previewUi.SetFrameColor(hoveredCard ? detailColor : GetCardTypeFrameColor(previewCard.type));
+                        if (cardPackInputAllowed) {
+                            previewUi.Update(input);
+                        }
+                        previewUi.Render(screen);
                     }
 
                     if (RectFitsInside(animatedDetailRect, packSummaryRect)) {
@@ -2611,14 +2830,36 @@ int main(int argc, char* argv[]) {
                     bool continueRequested = false;
 
                     if (rewards.cardSelectionOpen && rewards.cardRewardAvailable && !rewards.cardRewardClaimed) {
-                        const int cardTop = rewardRect.y + 5;
-                        const int cardSpacing = 24;
+                        const int cardCount = static_cast<int>(rewards.cardChoices.size());
+                        const int cardGap = 4;
+                        const int cardRowWidth = cardCount * CardUI::DefaultWidth() + (std::max)(0, cardCount - 1) * cardGap;
+                        const int selectionWidth = (std::min)(screen.GetWidth() - 10, (std::max)(rewardRect.width, cardRowWidth + 10));
+                        const int selectionHeight = (std::max)(rewardRect.height, CardUI::DefaultHeight() + 12);
+                        const Rect selectionRect = {
+                            screen.GetCenterX() - (selectionWidth / 2),
+                            rewardRect.y,
+                            selectionWidth,
+                            selectionHeight
+                        };
+                        RenderFrameBox(screen, selectionRect, COLOR_YELLOW);
+                        RenderPanelTitle(screen, selectionRect, rewards.title, COLOR_YELLOW);
+
+                        const int cardTop = selectionRect.y + 5;
+                        const int cardStartX = selectionRect.x + (selectionRect.width - cardRowWidth) / 2;
                         for (size_t choiceIndex = 0; choiceIndex < rewards.cardChoices.size(); ++choiceIndex) {
-                            Rect cardRect = { rewardRect.x + 4 + static_cast<int>(choiceIndex) * cardSpacing, cardTop, 22, 14 };
-                            RenderFrameBox(screen, cardRect, cardRect.Contains(mouseX, mouseY) ? COLOR_YELLOW : COLOR_WHITE);
-                            screen.DrawString(cardRect.x + 2, cardRect.y + 1, rewards.cardChoices[choiceIndex].name, COLOR_WHITE);
-                            screen.DrawString(cardRect.x + 2, cardRect.y + 2, string(u8"코스트 ") + CardLibrary::BuildCostPips(rewards.cardChoices[choiceIndex].cost), COLOR_YELLOW);
-                            RenderWrappedText(screen, cardRect.x + 2, cardRect.y + 4, cardRect.width - 4, rewards.cardChoices[choiceIndex].description, COLOR_WHITE);
+                            const Rect cardRect = {
+                                cardStartX + static_cast<int>(choiceIndex) * (CardUI::DefaultWidth() + cardGap),
+                                cardTop,
+                                CardUI::DefaultWidth(),
+                                CardUI::DefaultHeight()
+                            };
+                            CardData rewardCard = rewards.cardChoices[choiceIndex];
+                            CardUI rewardCardUi(cardRect.x, cardRect.y, &rewardCard);
+                            rewardCardUi.SetFrameColor(GetCardTypeFrameColor(rewardCard.type));
+                            if (run.overlay == RunOverlayType::None) {
+                                rewardCardUi.Update(input);
+                            }
+                            rewardCardUi.Render(screen);
 
                             if (cardRect.Contains(mouseX, mouseY) && input.IsLeftClickDown() && run.overlay == RunOverlayType::None) {
                                 run.deck.push_back(rewards.cardChoices[choiceIndex]);
@@ -2631,7 +2872,7 @@ int main(int argc, char* argv[]) {
                             }
                         }
 
-                        ButtonUI btnSkip(rewardRect.x + rewardRect.width / 2 - 8, rewardRect.y + rewardRect.height - 4, 16, 3, u8"넘기기", COLOR_WHITE, COLOR_YELLOW);
+                        ButtonUI btnSkip(selectionRect.x + selectionRect.width / 2 - 8, selectionRect.y + selectionRect.height - 4, 16, 3, u8"넘기기", COLOR_WHITE, COLOR_YELLOW);
                         if (run.overlay == RunOverlayType::None) {
                             btnSkip.Update(input);
                             UpdateButtonAudio(btnSkip, "reward_skip", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
@@ -2695,7 +2936,7 @@ int main(int argc, char* argv[]) {
                                 showTooltipAtMouse(BuildRelicTooltipLines(rewards.relicRewards[relicIndex]));
                             }
                             if (btnRelic.IsClicked()) {
-                                run.relics.push_back(rewards.relicRewards[relicIndex]);
+                                AcquireRelic(run, rewards.relicRewards[relicIndex]);
                                 if (relicIndex >= rewards.relicClaimed.size()) {
                                     rewards.relicClaimed.resize(relicIndex + 1, 0);
                                 }
@@ -2999,16 +3240,24 @@ int main(int argc, char* argv[]) {
                                 combatSystem = std::make_unique<CombatSystem>(&run.player, &run.battleRoom.enemy);
                                 CombatConfig& config = combatSystem->GetMutableConfig();
                                 if (run.currentRoomType == RunNodeType::Elite) {
-                                    config.baseEnemyIntentIntervalSec = 5.0f;
-                                    config.minEnemyIntentIntervalSec = 1.8f;
+                                    config.baseEnemyIntentIntervalSec = 8.0f;
+                                    config.minEnemyIntentIntervalSec = 2.0f;
                                     config.speedGainPerEnemyAction = 0.06f;
                                 }
                                 else if (run.currentRoomType == RunNodeType::Boss) {
-                                    config.baseEnemyIntentIntervalSec = 4.7f;
-                                    config.minEnemyIntentIntervalSec = 1.6f;
+                                    config.baseEnemyIntentIntervalSec = 6.5f;
+                                    config.minEnemyIntentIntervalSec = 2.0f;
                                     config.speedGainPerEnemyAction = 0.07f;
                                 }
+                                else {
+                                    config.baseEnemyIntentIntervalSec = 10.0f;
+                                    config.minEnemyIntentIntervalSec = 2.0f;
+                                }
+                                ApplyRelicsToCombatConfig(run, config);
                                 combatSystem->StartBattle(run.deck);
+                                if (HasRelicId(run, kRelicPoisonNeedle)) {
+                                    run.battleRoom.enemy.poison += 3 * CountRelicId(run, kRelicPoisonNeedle);
+                                }
 
                                 playerEntityUi = std::make_unique<EntityUI>(combatPlayerX, combatPlayerY, &run.player, true);
                                 enemyEntityUi = std::make_unique<EntityUI>(combatEnemyX, combatEnemyY, &run.battleRoom.enemy, false);
@@ -3045,7 +3294,7 @@ int main(int argc, char* argv[]) {
                             const int overlapChars = cardCount >= 7 ? 12 : (cardCount >= 5 ? 8 : (cardCount >= 2 ? 2 : 0));
                             const int cardSpacing = cardWidth - overlapChars;
                             const int totalHandWidth = cardCount > 0 ? (cardWidth + (cardCount - 1) * cardSpacing) : 0;
-                            const int handStartX = (screen.GetWidth() - totalHandWidth) / 2;
+                            const int handStartX = ((screen.GetWidth() - totalHandWidth) / 2) - 3;
                             const int handBaseY = screen.GetHeight() - 15 - kCombatHandRaiseRows;
                             const bool allowCardInteraction = (run.overlay == RunOverlayType::None && !relicPanelConsumesInput);
 
@@ -3633,7 +3882,8 @@ int main(int argc, char* argv[]) {
                                 if (offer.sold) {
                                     return;
                                 }
-                                if (run.gold < offer.price) {
+                                const int finalPrice = GetShopPrice(run, offer.price);
+                                if (run.gold < finalPrice) {
                                     run.shopRoom.noticeText = u8"골드가 부족합니다.";
                                     PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_no_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
                                     return;
@@ -3644,7 +3894,7 @@ int main(int argc, char* argv[]) {
                                     return;
                                 }
 
-                                run.gold -= offer.price;
+                                run.gold -= finalPrice;
                                 offer.sold = true;
                                 PlayFixedEffect(audio, L"sfx\\SOTE_SFX_CashRegister.ogg", L"sfx_shop_purchase", audioAliasCounter, settings.effectsEnabled);
                                 PlayRandomEffect(audio, merchantBuyVoicePool, L"vo_merchant_buy", audioRng, audioAliasCounter, settings.effectsEnabled);
@@ -3654,7 +3904,7 @@ int main(int argc, char* argv[]) {
                                     run.shopRoom.noticeText = offer.card.name + u8" 카드를 구매했습니다.";
                                     break;
                                 case ShopOfferType::Relic:
-                                    run.relics.push_back(offer.relic);
+                                    AcquireRelic(run, offer.relic);
                                     run.shopRoom.noticeText = offer.relic.name + u8" 유물을 구매했습니다.";
                                     PlayRandomEffect(audio, relicDropPool, L"sfx_shop_relic", audioRng, audioAliasCounter, settings.effectsEnabled);
                                     break;
@@ -3670,26 +3920,47 @@ int main(int argc, char* argv[]) {
 
                             const auto renderOffer = [&](ShopOfferState& offer, const Rect& offerRect) {
                                 const bool hovered = offerRect.Contains(mouseX, mouseY);
+                                const int finalPrice = GetShopPrice(run, offer.price);
                                 if (offer.type == ShopOfferType::Card) {
-                                    RenderCompactCardOffer(screen, offerRect, offer.card, offer.price, offer.sold, hovered);
+                                    CardData offerCard = offer.card;
+                                    CardUI cardUi(offerRect.x, offerRect.y, &offerCard);
+                                    cardUi.SetPlayable(!offer.sold);
+                                    if (!offer.sold && run.overlay == RunOverlayType::None && !run.shopRoom.removeMode && !run.shopRoom.upgradeMode) {
+                                        cardUi.Update(input);
+                                    }
+                                    cardUi.Render(screen);
+                                    screen.DrawString(
+                                        offerRect.x + 2,
+                                        offerRect.y + offerRect.height + 1,
+                                        offer.sold ? u8"구매 완료" : (std::to_string(finalPrice) + "G"),
+                                        offer.sold ? FOREGROUND_INTENSITY : COLOR_YELLOW);
                                 }
                                 else {
                                     const WORD frameColor = offer.sold ? FOREGROUND_INTENSITY : (hovered ? COLOR_YELLOW : COLOR_WHITE);
                                     RenderFrameBox(screen, offerRect, frameColor);
                                     screen.DrawString(offerRect.x + 2, offerRect.y + 1, offer.title, frameColor);
-                                    screen.DrawString(offerRect.x + 2, offerRect.y + 2, string(u8"가격 ") + to_string(offer.price) + "G", COLOR_YELLOW);
-                                    RenderWrappedText(screen, offerRect.x + 2, offerRect.y + 3, offerRect.width - 4, offer.sold ? u8"구매 완료" : offer.description, COLOR_WHITE);
+                                    screen.DrawString(offerRect.x + 2, offerRect.y + 2, string(u8"가격 ") + to_string(finalPrice) + "G", COLOR_YELLOW);
+                                    if (offer.type == ShopOfferType::Relic) {
+                                        const std::vector<std::string>& relicArt = RelicArtLibrary::Get(offer.relic);
+                                        for (int artLine = 0; artLine < static_cast<int>(relicArt.size()) && artLine < 3; ++artLine) {
+                                            screen.DrawString(offerRect.x + 2, offerRect.y + 4 + artLine, relicArt[static_cast<size_t>(artLine)], offer.sold ? FOREGROUND_INTENSITY : COLOR_YELLOW);
+                                        }
+                                        RenderWrappedText(screen, offerRect.x + 9, offerRect.y + 4, offerRect.width - 11, offer.sold ? u8"구매 완료" : offer.description, COLOR_WHITE);
+                                    }
+                                    else {
+                                        RenderWrappedText(screen, offerRect.x + 2, offerRect.y + 4, offerRect.width - 4, offer.sold ? u8"구매 완료" : offer.description, COLOR_WHITE);
+                                    }
                                     if (offer.type == ShopOfferType::Relic && hovered) {
                                         showTooltipAtMouse(BuildRelicTooltipLines(offer.relic));
                                     }
                                 }
-                                if (!offer.sold && hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
+                                if (!offer.sold && hovered && !run.shopRoom.removeMode && !run.shopRoom.upgradeMode && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
                                     tryBuyOffer(offer);
                                 }
                             };
 
-                            const int topCardWidth = 22;
-                            const int topCardHeight = 11;
+                            const int topCardWidth = CardUI::DefaultWidth();
+                            const int topCardHeight = CardUI::DefaultHeight();
                             const int topCardGap = 2;
                             const int topCardStartX = shopRect.x + 4;
                             const int topCardTop = shopRect.y + 5;
@@ -3698,20 +3969,40 @@ int main(int argc, char* argv[]) {
                                 renderOffer(*cardOffers[static_cast<size_t>(index)], offerRect);
                             }
 
-                            const int lowerCardTop = shopRect.y + 18;
+                            const int lowerCardTop = topCardTop + topCardHeight + 3;
                             for (int index = 5; index < 7 && index < static_cast<int>(cardOffers.size()); ++index) {
-                                const Rect offerRect = { shopRect.x + 6 + (index - 5) * 26, lowerCardTop, 24, 11 };
+                                const Rect offerRect = { shopRect.x + 6 + (index - 5) * (topCardWidth + topCardGap), lowerCardTop, topCardWidth, topCardHeight };
                                 renderOffer(*cardOffers[static_cast<size_t>(index)], offerRect);
                             }
 
                             for (int index = 0; index < static_cast<int>(potionOffers.size()); ++index) {
-                                const Rect offerRect = { shopRect.x + shopRect.width / 2 + 2 + index * 16, shopRect.y + shopRect.height - 11, 14, 5 };
+                                const Rect offerRect = { shopRect.x + shopRect.width / 2 + 6 + index * 22, shopRect.y + shopRect.height - 12, 20, 11 };
                                 renderOffer(*potionOffers[static_cast<size_t>(index)], offerRect);
                             }
 
                             for (int index = 0; index < static_cast<int>(relicOffers.size()); ++index) {
-                                const Rect offerRect = { shopRect.x + shopRect.width / 2 + 2 + index * 16, shopRect.y + shopRect.height - 17, 14, 5 };
+                                const Rect offerRect = { shopRect.x + shopRect.width / 2 + 2 + index * 26, shopRect.y + shopRect.height - 25, 24, 10 };
                                 renderOffer(*relicOffers[static_cast<size_t>(index)], offerRect);
+                            }
+
+                            const Rect upgradeRect = { shopRect.x + shopRect.width - 48, shopRect.y + shopRect.height - 15, 20, 10 };
+                            const bool upgradeHovered = upgradeRect.Contains(mouseX, mouseY);
+                            RenderFrameBox(screen, upgradeRect, upgradeHovered ? COLOR_YELLOW : COLOR_WHITE);
+                            RenderPanelTitle(screen, upgradeRect, u8"카드 강화", COLOR_YELLOW);
+                            screen.DrawString(upgradeRect.x + 3, upgradeRect.y + 4, u8"서비스!", COLOR_WHITE);
+                            screen.DrawString(upgradeRect.x + 4, upgradeRect.y + 6, to_string(GetShopPrice(run, run.shopRoom.upgradePrice)) + "G", COLOR_YELLOW);
+                            screen.DrawString(upgradeRect.x + 2, upgradeRect.y + 7, run.shopRoom.upgradeUsed ? u8"사용 완료" : u8"클릭하여 진행", FOREGROUND_INTENSITY);
+                            if (upgradeHovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
+                                if (run.shopRoom.upgradeUsed) {
+                                    run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 강화했습니다.";
+                                }
+                                else {
+                                    run.shopRoom.upgradeMode = !run.shopRoom.upgradeMode;
+                                    run.shopRoom.removeMode = false;
+                                    pendingUpgradeDeckIndex = -1;
+                                    shopServiceScroll = 0;
+                                    run.shopRoom.noticeText = run.shopRoom.upgradeMode ? u8"강화할 카드를 하나 선택하세요." : u8"카드 강화 모드를 종료했습니다.";
+                                }
                             }
 
                             const Rect removalRect = { shopRect.x + shopRect.width - 24, shopRect.y + shopRect.height - 15, 20, 10 };
@@ -3719,7 +4010,7 @@ int main(int argc, char* argv[]) {
                             RenderFrameBox(screen, removalRect, removalHovered ? COLOR_YELLOW : COLOR_WHITE);
                             RenderPanelTitle(screen, removalRect, u8"카드 제거", COLOR_YELLOW);
                             screen.DrawString(removalRect.x + 3, removalRect.y + 4, u8"서비스!", COLOR_WHITE);
-                            screen.DrawString(removalRect.x + 4, removalRect.y + 6, to_string(run.shopRoom.removalPrice) + "G", COLOR_YELLOW);
+                            screen.DrawString(removalRect.x + 4, removalRect.y + 6, to_string(GetShopPrice(run, run.shopRoom.removalPrice)) + "G", COLOR_YELLOW);
                             screen.DrawString(removalRect.x + 2, removalRect.y + 7, run.shopRoom.removalUsed ? u8"사용 완료" : u8"클릭하여 진행", FOREGROUND_INTENSITY);
                             if (removalHovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
                                 if (run.shopRoom.removalUsed) {
@@ -3727,6 +4018,9 @@ int main(int argc, char* argv[]) {
                                 }
                                 else {
                                     run.shopRoom.removeMode = !run.shopRoom.removeMode;
+                                    run.shopRoom.upgradeMode = false;
+                                    pendingUpgradeDeckIndex = -1;
+                                    shopServiceScroll = 0;
                                     run.shopRoom.noticeText = run.shopRoom.removeMode ? u8"제거할 카드를 하나 선택하세요." : u8"카드 제거 모드를 종료했습니다.";
                                 }
                             }
@@ -3740,41 +4034,74 @@ int main(int argc, char* argv[]) {
                             if (btnExit.IsClicked()) {
                                 run.shopRoom.uiOpen = false;
                                 run.shopRoom.removeMode = false;
+                                run.shopRoom.upgradeMode = false;
+                                pendingUpgradeDeckIndex = -1;
                                 run.shopRoom.noticeText = u8"상인을 눌러 물건을 살펴보십시오.";
                             }
 
                             if (run.shopRoom.removeMode) {
-                                const Rect deckRect = { screen.GetCenterX() - 24, screen.GetCenterY() - 10, 48, 18 };
-                                RenderFrameBox(screen, deckRect, COLOR_YELLOW);
-                                RenderPanelTitle(screen, deckRect, u8"제거할 카드", COLOR_YELLOW);
+                                CardGridResult grid = RenderCardGridPopup(screen, input, run.deck, shopServiceScroll, u8"제거할 카드", u8"카드를 클릭하면 덱에서 제거합니다.", u8"뒤로", true, false, run.overlay == RunOverlayType::None, mouseX, mouseY);
+                                if (grid.backClicked) {
+                                    run.shopRoom.removeMode = false;
+                                }
+                                if (grid.selectedIndex >= 0 && grid.selectedIndex < static_cast<int>(run.deck.size())) {
+                                    const int removalPrice = GetShopPrice(run, run.shopRoom.removalPrice);
+                                    if (run.shopRoom.removalUsed) {
+                                        run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
+                                    }
+                                    else if (run.gold < removalPrice) {
+                                        run.shopRoom.noticeText = u8"카드 제거 비용이 부족합니다.";
+                                        PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_remove_no_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                    }
+                                    else if (run.deck.size() <= 1) {
+                                        run.shopRoom.noticeText = u8"덱이 비어버리지 않도록 최소 1장은 남겨야 합니다.";
+                                    }
+                                    else {
+                                        const string removedName = run.deck[static_cast<size_t>(grid.selectedIndex)].name;
+                                        run.gold -= removalPrice;
+                                        run.deck.erase(run.deck.begin() + static_cast<vector<CardData>::difference_type>(grid.selectedIndex));
+                                        run.shopRoom.removalUsed = true;
+                                        run.shopRoom.removeMode = false;
+                                        run.shopRoom.noticeText = removedName + u8" 카드를 제거했습니다.";
+                                        PlayFixedEffect(audio, L"sfx\\SOTE_SFX_ExhaustCard.ogg", L"sfx_shop_remove_exhaust", audioAliasCounter, settings.effectsEnabled);
+                                        PlayFixedEffect(audio, L"sfx\\SOTE_SFX_CashRegister.ogg", L"sfx_shop_remove_pay", audioAliasCounter, settings.effectsEnabled);
+                                    }
+                                }
+                            }
 
-                                for (size_t cardIndex = 0; cardIndex < run.deck.size() && cardIndex < static_cast<size_t>(deckRect.height - 4); ++cardIndex) {
-                                    const Rect rowRect = { deckRect.x + 2, deckRect.y + 3 + static_cast<int>(cardIndex), deckRect.width - 4, 1 };
-                                    const bool hovered = rowRect.Contains(mouseX, mouseY);
-                                    screen.DrawString(rowRect.x, rowRect.y, TextLayout::AlignToWidth(TextLayout::Utf8ToWide(BuildCardSummary(run.deck[cardIndex])), rowRect.width, TextLayout::HorizontalAlign::Left), hovered ? COLOR_YELLOW : COLOR_WHITE);
-
-                                    if (hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
-                                        if (run.shopRoom.removalUsed) {
-                                            run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 제거했습니다.";
+                            if (run.shopRoom.upgradeMode) {
+                                if (pendingUpgradeDeckIndex >= 0 && pendingUpgradeDeckIndex < static_cast<int>(run.deck.size())) {
+                                    UpgradeCompareResult decision = RenderUpgradeComparePopup(screen, input, run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)], run.overlay == RunOverlayType::None);
+                                    if (decision.cancel) {
+                                        pendingUpgradeDeckIndex = -1;
+                                    }
+                                    if (decision.confirm) {
+                                        const int upgradePrice = GetShopPrice(run, run.shopRoom.upgradePrice);
+                                        if (run.shopRoom.upgradeUsed) {
+                                            run.shopRoom.noticeText = u8"이번 상점에서는 이미 카드를 강화했습니다.";
                                         }
-                                        else if (run.gold < run.shopRoom.removalPrice) {
-                                            run.shopRoom.noticeText = u8"카드 제거 비용이 부족합니다.";
-                                            PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_remove_no_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
+                                        else if (run.gold < upgradePrice) {
+                                            run.shopRoom.noticeText = u8"카드 강화 비용이 부족합니다.";
+                                            PlayRandomEffect(audio, merchantNoGoldVoicePool, L"vo_merchant_upgrade_no_gold", audioRng, audioAliasCounter, settings.effectsEnabled);
                                         }
-                                        else if (run.deck.size() <= 1) {
-                                            run.shopRoom.noticeText = u8"덱이 비어버리지 않도록 최소 1장은 남겨야 합니다.";
+                                        else if (CardLibrary::ApplyNextUpgrade(run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)])) {
+                                            run.gold -= upgradePrice;
+                                            run.shopRoom.upgradeUsed = true;
+                                            run.shopRoom.upgradeMode = false;
+                                            run.shopRoom.noticeText = u8"카드 강화가 완료되었습니다.";
+                                            pendingUpgradeDeckIndex = -1;
+                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_UpgradeCard_v1.ogg", L"sfx_shop_upgrade", audioAliasCounter, settings.effectsEnabled);
+                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_CashRegister.ogg", L"sfx_shop_upgrade_pay", audioAliasCounter, settings.effectsEnabled);
                                         }
-                                        else {
-                                            const string removedName = run.deck[cardIndex].name;
-                                            run.gold -= run.shopRoom.removalPrice;
-                                            run.deck.erase(run.deck.begin() + static_cast<vector<CardData>::difference_type>(cardIndex));
-                                            run.shopRoom.removalUsed = true;
-                                            run.shopRoom.removeMode = false;
-                                            run.shopRoom.noticeText = removedName + u8" 카드를 제거했습니다.";
-                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_ExhaustCard.ogg", L"sfx_shop_remove_exhaust", audioAliasCounter, settings.effectsEnabled);
-                                            PlayFixedEffect(audio, L"sfx\\SOTE_SFX_CashRegister.ogg", L"sfx_shop_remove_pay", audioAliasCounter, settings.effectsEnabled);
-                                        }
-                                        break;
+                                    }
+                                }
+                                else {
+                                    CardGridResult grid = RenderCardGridPopup(screen, input, run.deck, shopServiceScroll, u8"강화할 카드", u8"강화 가능한 카드만 선택할 수 있습니다.", u8"뒤로", true, true, run.overlay == RunOverlayType::None, mouseX, mouseY);
+                                    if (grid.backClicked) {
+                                        run.shopRoom.upgradeMode = false;
+                                    }
+                                    if (grid.selectedIndex >= 0) {
+                                        pendingUpgradeDeckIndex = grid.selectedIndex;
                                     }
                                 }
                             }
@@ -3819,89 +4146,33 @@ int main(int argc, char* argv[]) {
                             }
                         }
                         else if (run.restRoom.smithMode) {
-                            const Rect smithRect = { screen.GetCenterX() - 42, 13, 84, 20 };
-                            RenderFrameBox(screen, smithRect, COLOR_YELLOW);
-                            RenderPanelTitle(screen, smithRect, u8"제련할 카드 선택", COLOR_YELLOW);
-
-                            const int visibleLineCount = smithRect.height - 8;
-                            if (input.GetWheelDelta() != 0) {
-                                deckScroll -= input.GetWheelDelta();
-                            }
-                            deckScroll = (std::max)(0, (std::min)(deckScroll, (std::max)(0, static_cast<int>(run.deck.size()) - visibleLineCount)));
-
-                            int hoveredDeckIndex = -1;
-                            int upgradeableCount = 0;
-                            for (const CardData& card : run.deck) {
-                                if (CardLibrary::CanApplyNextUpgrade(card)) {
-                                    ++upgradeableCount;
+                            if (pendingUpgradeDeckIndex >= 0 && pendingUpgradeDeckIndex < static_cast<int>(run.deck.size())) {
+                                UpgradeCompareResult decision = RenderUpgradeComparePopup(screen, input, run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)], run.overlay == RunOverlayType::None);
+                                if (decision.cancel) {
+                                    pendingUpgradeDeckIndex = -1;
                                 }
-                            }
-
-                            if (upgradeableCount <= 0) {
-                                RenderWrappedText(screen, smithRect.x + 3, smithRect.y + 4, smithRect.width - 6, u8"현재 덱에는 자동 강화 규칙으로 처리할 수 있는 카드가 없습니다.", COLOR_WHITE);
-                            }
-
-                            for (int lineIndex = 0; lineIndex < visibleLineCount && (deckScroll + lineIndex) < static_cast<int>(run.deck.size()); ++lineIndex) {
-                                const int deckIndex = deckScroll + lineIndex;
-                                CardData& deckCard = run.deck[static_cast<size_t>(deckIndex)];
-                                const bool canUpgrade = CardLibrary::CanApplyNextUpgrade(deckCard);
-                                std::string rowText = BuildCardSummary(deckCard);
-                                if (!canUpgrade) {
-                                    rowText += deckCard.upgradeLevel >= 2 ? u8" / 최대 강화" : u8" / 수동 설계 필요";
-                                }
-
-                                const Rect rowRect = { smithRect.x + 3, smithRect.y + 3 + lineIndex, smithRect.width - 6, 1 };
-                                const bool hovered = rowRect.Contains(mouseX, mouseY);
-                                if (hovered) {
-                                    hoveredDeckIndex = deckIndex;
-                                }
-
-                                const WORD rowColor = canUpgrade
-                                    ? (hovered ? COLOR_YELLOW : COLOR_WHITE)
-                                    : FOREGROUND_INTENSITY;
-                                screen.DrawString(
-                                    rowRect.x,
-                                    rowRect.y,
-                                    TextLayout::AlignToWidth(TextLayout::Utf8ToWide(rowText), rowRect.width, TextLayout::HorizontalAlign::Left),
-                                    rowColor);
-
-                                if (canUpgrade && hovered && run.overlay == RunOverlayType::None && input.IsLeftClickDown()) {
-                                    const std::string beforeName = deckCard.baseName.empty() ? deckCard.name : deckCard.baseName;
-                                    if (CardLibrary::ApplyNextUpgrade(deckCard)) {
+                                if (decision.confirm) {
+                                    const std::string beforeName = run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)].baseName.empty()
+                                        ? run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)].name
+                                        : run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)].baseName;
+                                    if (CardLibrary::ApplyNextUpgrade(run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)])) {
                                         run.restRoom.resultReady = true;
                                         run.restRoom.smithMode = false;
-                                        run.restRoom.resultText = beforeName + " +" + std::to_string(deckCard.upgradeLevel) + u8" 강화가 완료되었습니다.";
+                                        run.restRoom.resultText = beforeName + " +" + std::to_string(run.deck[static_cast<size_t>(pendingUpgradeDeckIndex)].upgradeLevel) + u8" 강화가 완료되었습니다.";
+                                        pendingUpgradeDeckIndex = -1;
                                         PlayFixedEffect(audio, L"sfx\\SOTE_SFX_UpgradeCard_v1.ogg", L"sfx_rest_smith", audioAliasCounter, settings.effectsEnabled);
                                     }
-                                    break;
                                 }
                             }
-
-                            if (hoveredDeckIndex >= 0 && hoveredDeckIndex < static_cast<int>(run.deck.size())) {
-                                const CardData& hoveredCard = run.deck[static_cast<size_t>(hoveredDeckIndex)];
-                                const Rect previewRect = { smithRect.x + 3, smithRect.y + smithRect.height - 4, smithRect.width - 24, 3 };
-                                std::vector<std::string> previewLines;
-                                previewLines.push_back(hoveredCard.description);
-                                if (CardLibrary::CanApplyNextUpgrade(hoveredCard)) {
-                                    CardData previewCard = hoveredCard;
-                                    CardLibrary::ApplyNextUpgrade(previewCard);
-                                    previewLines.push_back(std::string(u8"강화 후: ") + BuildCardSummary(previewCard));
+                            else {
+                                CardGridResult grid = RenderCardGridPopup(screen, input, run.deck, deckScroll, u8"제련할 카드 선택", u8"강화 가능한 카드만 선택할 수 있습니다.", u8"뒤로", true, true, run.overlay == RunOverlayType::None, mouseX, mouseY);
+                                if (grid.backClicked) {
+                                    run.restRoom.smithMode = false;
+                                    run.restRoom.noticeText = u8"휴식하거나 카드 한 장을 제련할 수 있습니다.";
                                 }
-                                else {
-                                    previewLines.push_back(u8"이 카드는 현재 자동 강화 규칙에서 제외됩니다.");
+                                if (grid.selectedIndex >= 0) {
+                                    pendingUpgradeDeckIndex = grid.selectedIndex;
                                 }
-                                RenderTextBlock(screen, previewRect, previewLines, FOREGROUND_INTENSITY);
-                            }
-
-                            ButtonUI btnBack(smithRect.x + smithRect.width - 18, smithRect.y + smithRect.height - 4, 14, 3, u8"뒤로", COLOR_WHITE, COLOR_YELLOW);
-                            if (run.overlay == RunOverlayType::None) {
-                                btnBack.Update(input);
-                            }
-                            UpdateButtonAudio(btnBack, "rest_smith_back", audio, uiHoverPool, uiClickPool, hoverAudioLatch, audioRng, audioAliasCounter, settings.effectsEnabled);
-                            btnBack.Render(screen);
-                            if (btnBack.IsClicked()) {
-                                run.restRoom.smithMode = false;
-                                run.restRoom.noticeText = u8"휴식하거나 카드 한 장을 제련할 수 있습니다.";
                             }
                         }
                         else {
@@ -3917,7 +4188,7 @@ int main(int argc, char* argv[]) {
                             btnSmith.Render(screen);
 
                             if (btnRest.IsClicked()) {
-                                const int healAmount = (std::max)(12, run.player.maxHp / 4);
+                                const int healAmount = (std::max)(12, run.player.maxHp / 4) + (6 * CountRelicId(run, kRelicPreservedEmber));
                                 const int beforeHp = run.player.currentHp;
                                 run.player.currentHp = (std::min)(run.player.maxHp, run.player.currentHp + healAmount);
                                 run.restRoom.resultReady = true;
@@ -3928,6 +4199,7 @@ int main(int argc, char* argv[]) {
                                 run.restRoom.smithMode = true;
                                 run.restRoom.noticeText = u8"강화할 카드를 선택하세요. 휠로 목록을 이동할 수 있습니다.";
                                 deckScroll = 0;
+                                pendingUpgradeDeckIndex = -1;
                             }
                         }
                         break;
@@ -4034,7 +4306,7 @@ int main(int argc, char* argv[]) {
                                             }
                                         }
                                         if (choice.grantRelic) {
-                                            run.relics.push_back(choice.relic);
+                                            AcquireRelic(run, choice.relic);
                                             run.eventRoom.resultText += "\n" + choice.relic.name + u8" 유물을 얻었습니다.";
                                         }
                                         if (choice.grantPotion) {
@@ -4127,21 +4399,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             else if (run.overlay == RunOverlayType::Deck) {
-                const Rect overlayRect = { 10, 5, screen.GetWidth() - 20, screen.GetHeight() - 10 };
-                RenderFrameBox(screen, overlayRect, COLOR_YELLOW);
-                RenderPanelTitle(screen, overlayRect, u8"현재 덱", COLOR_YELLOW);
-
-                vector<string> deckLines = BuildDeckLines(run);
-                if (!relicPanelConsumesInput && input.GetWheelDelta() != 0) {
-                    deckScroll -= input.GetWheelDelta();
-                }
-
-                const int visibleLineCount = overlayRect.height - 6;
-                deckScroll = (std::max)(0, (std::min)(deckScroll, (std::max)(0, static_cast<int>(deckLines.size()) - visibleLineCount)));
-
-                for (int lineIndex = 0; lineIndex < visibleLineCount && (deckScroll + lineIndex) < static_cast<int>(deckLines.size()); ++lineIndex) {
-                    screen.DrawString(overlayRect.x + 3, overlayRect.y + 3 + lineIndex, deckLines[static_cast<size_t>(deckScroll + lineIndex)], COLOR_WHITE);
-                }
+                RenderCardGridPopup(screen, input, run.deck, deckScroll, u8"현재 덱", u8"휠로 스크롤합니다.", "", false, false, !relicPanelConsumesInput, mouseX, mouseY);
             }
             else if (run.overlay == RunOverlayType::Settings) {
                 const Rect popup = { screen.GetCenterX() - 46, screen.GetCenterY() - 12, 92, 25 };

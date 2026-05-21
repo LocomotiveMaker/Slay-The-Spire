@@ -36,9 +36,14 @@ const std::vector<std::string>* TryResolveExplicitEnemyArt(int visualArtId) {
     case AsciiArtId::EnemyNormalMushroom:
     case AsciiArtId::EnemyNormalSlime:
     case AsciiArtId::EnemyElite:
+    case AsciiArtId::EnemyEliteWitch:
+    case AsciiArtId::EnemyEliteReaper:
+    case AsciiArtId::EnemyEliteBackturner:
     case AsciiArtId::EnemyBossCentaurus:
     case AsciiArtId::EnemyBossPuppet:
     case AsciiArtId::EnemyBossHydra:
+    case AsciiArtId::EnemyBossTitan:
+    case AsciiArtId::EnemyBossCrown:
         return &AsciiArtLibrary::Get(static_cast<AsciiArtId>(visualArtId));
     default:
         return nullptr;
@@ -216,12 +221,14 @@ void EntityUI::Render(ScreenManager& screen) {
         screen.DrawString(drawX, artTopY + static_cast<int>(index), currentArt[index], artColor);
     }
 
-    const std::string headerText = isTargeted ? std::string(u8"[조준 중]") : data->name;
-    screen.DrawString(
-        anchorCenterX - (width / 2) + horizontalShake,
-        artTopY - 2,
-        TextLayout::AlignToWidth(TextLayout::Utf8ToWide(headerText), width, TextLayout::HorizontalAlign::Center),
-        isTargeted ? COLOR_YELLOW : COLOR_WHITE);
+    if (!isPlayer || isTargeted) {
+        const std::string headerText = isTargeted ? std::string(u8"[조준 중]") : data->name;
+        screen.DrawString(
+            anchorCenterX - (width / 2) + horizontalShake,
+            artTopY - 2,
+            TextLayout::AlignToWidth(TextLayout::Utf8ToWide(headerText), width, TextLayout::HorizontalAlign::Center),
+            isTargeted ? COLOR_YELLOW : COLOR_WHITE);
+    }
 
     healthBar->Render(screen);
 }

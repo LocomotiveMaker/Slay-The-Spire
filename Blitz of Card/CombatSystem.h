@@ -26,14 +26,18 @@ struct CombatConfig {
     float minDrawIntervalSec = 1.3f;
     float baseEnergyIntervalSec = 3.2f;
     float minEnergyIntervalSec = 1.7f;
-    float baseEnemyIntentIntervalSec = 14.0f;
-    float minEnemyIntentIntervalSec = 8.0f;
+    float baseEnemyIntentIntervalSec = 10.0f;
+    float minEnemyIntentIntervalSec = 2.0f;
     float speedGainPerEnemyAction = 0.035f;
     float dragSlowStrength = 0.08f;
     int startingHandSize = 5;
     int handLimit = 8;
     int startingEnergy = 3;
     int maxEnergy = 5;
+    int attackDamageBonus = 0;
+    int comboDamageBonusAtFive = 0;
+    int blockGainBonus = 0;
+    int strengthGainBonus = 0;
 };
 
 struct EnemyIntentState {

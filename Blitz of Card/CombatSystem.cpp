@@ -210,6 +210,10 @@ int CombatSystem::ApplyDamageToTarget(EntityData& target, int rawDamage) {
 
 int CombatSystem::BuildAttackDamagePerHit(const CardData& card, int baseDamagePerHit) const {
     int damage = baseDamagePerHit + card.runtimePrimaryModifier;
+    damage += config.attackDamageBonus;
+    if (comboEnabled && comboCount >= 5) {
+        damage += config.comboDamageBonusAtFive;
+    }
     if (CardLibrary::IsBasicStrike(card)) {
         damage += basicStrikeBonus;
     }
@@ -245,6 +249,7 @@ void CombatSystem::GainPlayerBlock(int amount, CombatActionResult* actionResult,
     if (applyDexterity) {
         finalAmount += player->dexterity;
     }
+    finalAmount += config.blockGainBonus;
     finalAmount = (std::max)(0, finalAmount);
     if (finalAmount <= 0) {
         return;
@@ -274,7 +279,7 @@ void CombatSystem::GainPlayerStrength(int amount, CombatActionResult* actionResu
         return;
     }
 
-    int finalAmount = amount;
+    int finalAmount = amount + config.strengthGainBonus;
     if (currentIntent.type == EnemyIntentType::Attack && bonusStrengthGainWhenEnemyAttacks > 0) {
         finalAmount += bonusStrengthGainWhenEnemyAttacks;
     }

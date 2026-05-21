@@ -14,38 +14,32 @@ const std::vector<std::string>& Get(RelicArtId artId) {
         "( ? )",
         " '-' "
     };
-    static const std::vector<std::string> kBloodstone = {
-        " /\\  ",
-        "<##> ",
-        " \\/  "
-    };
-    static const std::vector<std::string> kShieldGear = {
-        " /O\\ ",
-        "|###|",
-        " \\_/ "
-    };
-    static const std::vector<std::string> kAlchemyPouch = {
-        " /\\  ",
-        "(~~) ",
-        " \\/  "
-    };
-    static const std::vector<std::string> kGoldenTooth = {
-        " /\\  ",
-        "|$$| ",
-        " \\/  "
-    };
-    static const std::vector<std::string> kCrackedCharm = {
-        " .*. ",
-        "<\\/ >",
-        " `*' "
-    };
+    static const std::vector<std::string> kOldClock = { " .-. ", "(o o)", " `-' " };
+    static const std::vector<std::string> kSharpMetronome = { " /|\\ ", "/_|_\\", "  |  " };
+    static const std::vector<std::string> kCrackedShield = { " /#\\ ", "|/\\|", " \\_/ " };
+    static const std::vector<std::string> kPoisonNeedle = { "  /\\ ", "===> ", "  \\/ " };
+    static const std::vector<std::string> kRedMedal = { " \\|/ ", "(*) ", " / \\ " };
+    static const std::vector<std::string> kSwiftWristband = { "==== ", "{~~}", "==== " };
+    static const std::vector<std::string> kPreservedEmber = { " (  ", "(**)", " /\\ " };
+    static const std::vector<std::string> kMerchantCoin = { " ___ ", "($$)", " --- " };
+    static const std::vector<std::string> kCrackedHourglass = { "\\ / ", " X  ", "/ \\" };
+    static const std::vector<std::string> kBattleFeather = { " // ", "<<  ", " \\\\ " };
+    static const std::vector<std::string> kBronzeHeart = { "/\\/\\", "\\  /", " \\/ " };
+    static const std::vector<std::string> kSharpCharm = { " .*. ", "<\\/ >", " `*' " };
 
     switch (artId) {
-    case RelicArtId::Bloodstone: return kBloodstone;
-    case RelicArtId::ShieldGear: return kShieldGear;
-    case RelicArtId::AlchemyPouch: return kAlchemyPouch;
-    case RelicArtId::GoldenTooth: return kGoldenTooth;
-    case RelicArtId::CrackedCharm: return kCrackedCharm;
+    case RelicArtId::OldClock: return kOldClock;
+    case RelicArtId::SharpMetronome: return kSharpMetronome;
+    case RelicArtId::CrackedShield: return kCrackedShield;
+    case RelicArtId::PoisonNeedle: return kPoisonNeedle;
+    case RelicArtId::RedMedal: return kRedMedal;
+    case RelicArtId::SwiftWristband: return kSwiftWristband;
+    case RelicArtId::PreservedEmber: return kPreservedEmber;
+    case RelicArtId::MerchantCoin: return kMerchantCoin;
+    case RelicArtId::CrackedHourglass: return kCrackedHourglass;
+    case RelicArtId::BattleFeather: return kBattleFeather;
+    case RelicArtId::BronzeHeart: return kBronzeHeart;
+    case RelicArtId::SharpCharm: return kSharpCharm;
     default: return kFallback;
     }
 }

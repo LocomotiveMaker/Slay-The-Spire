@@ -164,8 +164,11 @@ struct ShopRoomState {
     bool initialized = false;
     bool uiOpen = false;
     bool removeMode = false;
+    bool upgradeMode = false;
     bool removalUsed = false;
+    bool upgradeUsed = false;
     int removalPrice = 75;
+    int upgradePrice = 75;
     int chatterIndex = 0;
     float chatterTimerSec = 0.0f;
     std::string noticeText;

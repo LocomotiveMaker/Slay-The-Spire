@@ -73,11 +73,18 @@ std::vector<CardData> BuildGeneralCardPool() {
 
 std::vector<RelicData> BuildRelicPool() {
     return {
-        MakeRelic(3000, RelicArtId::Bloodstone, u8"검은 혈석", u8"공격 카드의 존재감을 강화하는 임시 유물입니다."),
-        MakeRelic(3001, RelicArtId::ShieldGear, u8"방패 톱니", u8"방어 카드 위주의 런을 보강하는 임시 유물입니다."),
-        MakeRelic(3002, RelicArtId::AlchemyPouch, u8"연금 주머니", u8"포션 획득과 활용을 돕는 임시 유물입니다."),
-        MakeRelic(3003, RelicArtId::GoldenTooth, u8"황금 이빨", u8"골드 수급과 상점 운영을 위한 임시 유물입니다."),
-        MakeRelic(3004, RelicArtId::CrackedCharm, u8"금 간 부적", u8"미지 이벤트와 보상 노드의 밀도를 올리는 임시 유물입니다.")
+        MakeRelic(3000, RelicArtId::OldClock, u8"낡은 초시계", u8"전투 시작 시 적의 첫 행동 주기가 2초 늦어집니다."),
+        MakeRelic(3001, RelicArtId::SharpMetronome, u8"날 선 박자기", u8"콤보가 5 이상이면 공격 피해가 2 증가합니다."),
+        MakeRelic(3002, RelicArtId::CrackedShield, u8"금 간 방패", u8"방어도를 얻을 때마다 추가로 2 얻습니다."),
+        MakeRelic(3003, RelicArtId::PoisonNeedle, u8"독 묻은 바늘", u8"전투 시작 시 적에게 독 3을 부여합니다."),
+        MakeRelic(3004, RelicArtId::RedMedal, u8"붉은 훈장", u8"힘을 얻을 때마다 추가로 힘 1을 얻습니다."),
+        MakeRelic(3005, RelicArtId::SwiftWristband, u8"빠른 손목띠", u8"카드 드로우 기본 주기가 5% 빨라집니다."),
+        MakeRelic(3006, RelicArtId::PreservedEmber, u8"보존된 불씨", u8"휴식 시 체력을 6 더 회복합니다."),
+        MakeRelic(3007, RelicArtId::MerchantCoin, u8"상인의 동전", u8"상점 가격이 15% 감소합니다."),
+        MakeRelic(3008, RelicArtId::CrackedHourglass, u8"깨진 모래시계", u8"적 행동 후 전투 가속 증가량이 20% 감소합니다."),
+        MakeRelic(3009, RelicArtId::BattleFeather, u8"전투 깃털", u8"전투 시작 손패가 1장 증가합니다."),
+        MakeRelic(3010, RelicArtId::BronzeHeart, u8"청동 심장", u8"획득 시 최대 체력과 현재 체력이 10 증가합니다."),
+        MakeRelic(3011, RelicArtId::SharpCharm, u8"날카로운 부적", u8"모든 공격 피해가 1 증가합니다.")
     };
 }
 
@@ -96,14 +103,28 @@ int PickNormalEnemyVisualArtId(std::mt19937& rng) {
 }
 
 int PickBossEnemyVisualArtId(std::mt19937& rng) {
-    static const std::array<AsciiArtId, 3> kBossArts = {
+    static const std::array<AsciiArtId, 5> kBossArts = {
         AsciiArtId::EnemyBossCentaurus,
         AsciiArtId::EnemyBossPuppet,
-        AsciiArtId::EnemyBossHydra
+        AsciiArtId::EnemyBossHydra,
+        AsciiArtId::EnemyBossTitan,
+        AsciiArtId::EnemyBossCrown
     };
 
     std::uniform_int_distribution<int> dist(0, static_cast<int>(kBossArts.size()) - 1);
     return ToVisualArtId(kBossArts[static_cast<size_t>(dist(rng))]);
+}
+
+int PickEliteEnemyVisualArtId(std::mt19937& rng) {
+    static const std::array<AsciiArtId, 4> kEliteArts = {
+        AsciiArtId::EnemyElite,
+        AsciiArtId::EnemyEliteWitch,
+        AsciiArtId::EnemyEliteReaper,
+        AsciiArtId::EnemyEliteBackturner
+    };
+
+    std::uniform_int_distribution<int> dist(0, static_cast<int>(kEliteArts.size()) - 1);
+    return ToVisualArtId(kEliteArts[static_cast<size_t>(dist(rng))]);
 }
 
 std::vector<PotionData> BuildPotionPool() {
@@ -163,6 +184,7 @@ void InitializeShopRoom(RunStateData& run) {
     run.shopRoom = {};
     run.shopRoom.initialized = true;
     run.shopRoom.removalPrice = 75;
+    run.shopRoom.upgradePrice = 75;
     run.shopRoom.noticeText = u8"상인을 눌러 물건을 살펴보십시오.";
     run.shopRoom.uiOpen = false;
     run.shopRoom.chatterIndex = 0;
@@ -235,7 +257,7 @@ EntityData BuildEnemyTemplateForRoom(RunNodeType type, std::mt19937& rng) {
     EntityData enemy = {};
     switch (type) {
     case RunNodeType::Elite:
-        enemy = { 9100, ToVisualArtId(AsciiArtId::EnemyElite), u8"수호 슬라임", 72, 72, 0, 1, 0, 0, 0, 0 };
+        enemy = { 9100, PickEliteEnemyVisualArtId(rng), u8"정예 수호자", 72, 72, 0, 1, 0, 0, 0, 0 };
         break;
     case RunNodeType::Boss:
         enemy = { 9200, PickBossEnemyVisualArtId(rng), u8"수호자 프로토타입", 130, 130, 0, 2, 0, 0, 0, 0 };
