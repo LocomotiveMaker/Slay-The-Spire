@@ -1,0 +1,48 @@
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.opendb
+*.suo
+*.user
+*.opendb
+*.ipch
+*.tlog
+*.lastbuildstate
+*.recipe
+*.db
+
+# Build outputs
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+.build/
+capture/
+Save/
+Blitz of Card/x64/
+Blitz of Card/x86/
+
+# C/C++ intermediates and binaries
+*.d
+*.obj
+*.o
+*.pch
+*.ilk
+*.idb
+*.pdb
+*.iobj
+*.ipdb
+*.lib
+*.exp
+*.dll
+*.exe
+*.log
+
+# Keep packaged release executables visible in GitHub
+!dist/x64-Release/*.exe
+!dist/x64-Debug/*.exe
+dist/github-release/
+
+# Keep source assets inside the project tree
+!Blitz of Card/Assets/
+!Blitz of Card/Assets/**

@@ -1,0 +1,42 @@
+#pragma once
+#include "GameData.h"
+#include "UIElement.h"
+#include <string>
+#include <vector>
+
+// 손패 카드의 외형과 마우스 판정을 맡는 가벼운 뷰 클래스.
+class CardUI : public UIElement {
+private:
+    static constexpr int kDefaultCardWidth = 36;
+    static constexpr int kDefaultCardHeight = 24;
+    static constexpr int kHoverLift = 3;
+
+    CardData* data;
+    int baseY;
+    int rightOcclusionChars;
+    WORD frameColor;
+    bool playable;
+    std::wstring cachedNameLine;
+    std::wstring cachedTypeLine;
+    std::vector<std::wstring> cachedDescriptionLines;
+
+    void RebuildLayoutCache();
+
+public:
+    CardUI(int x, int y, CardData* cardData);
+
+    static constexpr int DefaultWidth() { return kDefaultCardWidth; }
+    static constexpr int DefaultHeight() { return kDefaultCardHeight; }
+    static constexpr int HoverLift() { return kHoverLift; }
+
+    void SetBasePosition(int newX, int newY);
+    void SetRightOcclusion(int chars);
+    void SetFrameColor(WORD color);
+    void SetPlayable(bool canPlay);
+    int GetX() const { return x; }
+    int GetY() const { return y; }
+    int GetWidth() const { return width; }
+
+    bool Update(InputManager& input) override;
+    void Render(ScreenManager& screen) override;
+};
