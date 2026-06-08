@@ -9,6 +9,13 @@
 - 배포용 실행 파일 폴더: `dist/x64-Release/`
 - 기본 원격 저장소: `https://github.com/LocomotiveMaker/Slay-The-Spire.git`
 
+## GitHub Release 패키지
+
+- GitHub `Releases` 업로드용 압축 파일: `dist/Blitz-of-Card-win64.zip`
+- 압축을 풀면 바로 실행 가능한 폴더 이름: `Blitz-of-Card-win64/`
+- 포함 항목: `Blitz of Card.exe`, `Run-Fullscreen.bat`, `Run-Windowed.bat`, `README.txt`, `Assets/`
+- 재생성 스크립트: `tools/Package-GitHubRelease.ps1`
+
 ## 실행 환경
 
 - 64비트 Windows 환경이 필요합니다.

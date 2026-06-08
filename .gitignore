@@ -41,6 +41,7 @@ Blitz of Card/x86/
 # Keep packaged release executables visible in GitHub
 !dist/x64-Release/*.exe
 !dist/x64-Debug/*.exe
+dist/github-release/
 
 # Keep source assets inside the project tree
 !Blitz of Card/Assets/
